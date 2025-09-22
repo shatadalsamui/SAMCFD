@@ -1,6 +1,6 @@
 import express from "express";
 import v1Router from "./routes/v1"
-import cors from "express"
+import cors from "cors";
 
 const app = express();
 
