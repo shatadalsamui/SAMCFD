@@ -1,17 +1,17 @@
 import Router from "express";
 
-const router = Router();
+const v1Router = Router();
 
-router.post("/signup", (req, res) => {
-
-})
-
-router.post("/signin", (req, res) => {
+v1Router.post("/signup", (req, res) => {
 
 })
 
-router.post("/signin/post", (req, res) => {
+v1Router.post("/signin", (req, res) => {
 
 })
 
-export default router;
+v1Router.post("/signin/post", (req, res) => {
+
+})
+
+export default v1Router;
