@@ -55,7 +55,7 @@ export const userExistenceHandler = async (message: any) => {
                     key: message.correlationId,
                     value: JSON.stringify({
                         success: false,
-                        message: `Failed to check user existence.${error.message}`,
+                        message: "Failed to check user existence due to an internal error.",
                         correlationId: message.correlationId,
                     }),
                 },
