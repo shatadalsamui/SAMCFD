@@ -1,0 +1,21 @@
+{
+  "name": "db-processor",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "lint": "eslint . --max-warnings 0"
+  },
+  "dependencies": {
+    "@repo/db": "*",
+    "@repo/kafka": "*",
+    "bcrypt": "^5.1.1",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@repo/eslint-config": "*",
+    "@repo/typescript-config": "*",
+    "@types/bcrypt": "^5.0.2",
+    "typescript": "^5.4.5"
+  }
+}

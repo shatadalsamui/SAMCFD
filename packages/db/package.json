@@ -1,16 +1,20 @@
 {
-  "name": "db",
-  "module": "index.ts",
-  "type": "module",
-  "private": true,
-  "devDependencies": {
-    "@types/bun": "latest",
-    "prisma": "^6.16.3"
-  },
-  "peerDependencies": {
-    "typescript": "^5"
+  "name": "@repo/db",
+  "version": "0.0.0",
+  "main": "./src/prismaClient.ts",
+  "types": "./src/prismaClient.ts",
+  "scripts": {
+    "lint": "eslint . --max-warnings 0",
+    "generate": "prisma generate",
+    "db:push": "prisma db push --skip-generate"
   },
   "dependencies": {
-    "@prisma/client": "^6.16.3"
+    "@prisma/client": "latest"
+  },
+  "devDependencies": {
+    "@repo/eslint-config": "*",
+    "@repo/typescript-config": "*",
+    "prisma": "latest",
+    "typescript": "^5.4.5"
   }
 }
