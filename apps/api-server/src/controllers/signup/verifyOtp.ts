@@ -1,3 +1,6 @@
+// OTP Verification Controller
+// This file handles the verification of OTPs during the signup process. It validates user input, verifies OTPs from Redis, communicates with Kafka for user creation, and generates JWT tokens for authentication.
+
 import type { Request, Response } from "express";
 import { VerifyOtpSchema } from "@repo/schemas";
 import { getOtp, deleteOtp } from "../../cache/otpCache";

@@ -1,3 +1,6 @@
+// Signup Controller
+// Handles user signup by validating input, checking user existence, generating OTP, and sending it via email.
+
 import type { Request, Response } from "express";
 import { SignupSchema } from "@repo/schemas";
 import { kafkaRequestResponse } from "../../kafka/kafkaRequestResponse";
@@ -6,6 +9,7 @@ import { sendOtpMail } from "../../services/mail/otpMail";
 import crypto from "crypto";
 
 export const signUp = async (req: Request, res: Response) => {
+    
     try {
         const { success, data, error } = SignupSchema.safeParse(req.body);
 

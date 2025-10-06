@@ -1,3 +1,6 @@
+// API Server Entry Point
+// Initializes the Express server, sets up middleware, and defines API routes.
+
 import express from "express";
 import v1Router from "./routes/v1"
 import cors from "cors";

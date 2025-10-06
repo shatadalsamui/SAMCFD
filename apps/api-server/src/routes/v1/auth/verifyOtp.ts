@@ -1,3 +1,6 @@
+// Verify OTP Router
+// Handles OTP verification requests for user authentication.
+
 import { Router } from "express";
 import { verifyOtp } from "../../../controllers/signup/verifyOtp";
 

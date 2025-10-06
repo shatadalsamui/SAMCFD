@@ -1,3 +1,6 @@
+// Authentication Router
+// Organizes authentication-related routes such as signup, signin, and OTP verification.
+
 import { Router } from "express";
 import signupRouter from "./signup";
 import signinRouter from "./signin";

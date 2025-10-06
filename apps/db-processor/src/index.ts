@@ -1,9 +1,13 @@
-import { consumer, producer } from "@repo/kafka";
+// DB Processor Entry Point
+// Initializes the DB Processor service, setting up Kafka producer and consumer to handle user-related messages.
+
+import { producer } from "@repo/kafka";
 import { setupKafkaConsumer } from "./kafka/kafkaConsumer";
 import { userExistenceHandler } from "./handlers/userExistenceHandler";
 import { userCreationHandler } from "./handlers/userCreationHandler";
 
 const messageHandler = async (topic: string, message: any) => {
+    // Handles incoming Kafka messages based on their topic.
     try {
         if (!message.value) {
             console.warn(`Received a message with null value on topic: ${topic}`);
@@ -35,6 +39,7 @@ const messageHandler = async (topic: string, message: any) => {
 };
 
 const startDbProcessor = async () => {
+    // Starts the DB Processor service by connecting the Kafka producer and setting up the consumer.
     try {
         console.log("Starting DB Processor...");
         

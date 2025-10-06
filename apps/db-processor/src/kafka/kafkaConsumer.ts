@@ -1,4 +1,6 @@
-// filepath: /home/shatadal/SUPER30/WEEK1/CFD-Broker/apps/db-processor/src/kafka/kafkaConsumer.ts
+// Kafka Consumer Setup
+// Configures a Kafka consumer to process messages for the DB processor service.
+
 import { Kafka } from "kafkajs";
 
 // Create a separate Kafka consumer for the DB processor

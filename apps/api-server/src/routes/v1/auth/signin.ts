@@ -1,3 +1,6 @@
+// Signin Router
+// Placeholder for signin functionality, to be implemented.
+
 import { Router } from "express";
 
 const signinRouter = Router();
