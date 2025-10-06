@@ -32,10 +32,10 @@ export async function getOtp(email: string): Promise<string | null> {
 
 }
 
-//delete the otp 
-export async function deleteOtp(email: string): Promise<void> {
+//delete the otp and it return the number of deletions
+export async function deleteOtp(email: string): Promise<number> {
 
     await ensureRedisConnection();
 
-    await redisClient.del(`otp:${email}`);
+    return await redisClient.del(`otp:${email}`);
 }

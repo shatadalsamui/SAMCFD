@@ -30,8 +30,16 @@ export const verifyOtp = async (req: Request, res: Response) => {
             return res.status(401).json({ message: "Wrong otp Entered." });
         }
 
-        // Only delete OTP after successful verification
-        await deleteOtp(email);
+        // --- ATOMIC DELETION LOGIC ---
+        // Try to delete the OTP. This is an atomic operation.
+        const deletedCount = await deleteOtp(email);// it return the number of deletions
+
+        // If deletedCount is 0, it means the OTP was already used by a concurrent request.
+        if (deletedCount === 0) {
+            // Log this event for security monitoring
+            console.warn(`Race condition detected or OTP already used for email: ${email}`);
+            return res.status(409).json({ message: "This OTP has already been used." });
+        }
 
         // Step 2.5: Hash the password before sending to Kafka (SECURITY)
         const hashedPassword = await bcrypt.hash(userData.password, 12);
