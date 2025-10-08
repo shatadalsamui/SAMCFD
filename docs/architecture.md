@@ -63,4 +63,4 @@ sequenceDiagram
 
 - Containerize with Docker (separate containers for API, DBProc, Kafka, Redis).
 - Use env vars for configs (DB URLs, secrets).
-- Scale DBProc independently for high load.
+- - Scale DBProc independently for high load.

@@ -45,4 +45,4 @@ sequenceDiagram
 
 - No token: 401 No token
 - Invalid/expired JWT: 401 Invalid token
-- Missing Redis session: 401 Invalid token (handles token reuse/theft)
+- - Missing Redis session: 401 Invalid token (handles token reuse/theft)

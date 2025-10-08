@@ -32,4 +32,4 @@ sequenceDiagram
 ## Error Handling
 
 - No token in cookies: Still clears cookie and responds successfully (idempotent).
-- Redis errors: Logs error but still clears cookie and responds (graceful degradation).
+- - Redis errors: Logs error but still clears cookie and responds (graceful degradation).
