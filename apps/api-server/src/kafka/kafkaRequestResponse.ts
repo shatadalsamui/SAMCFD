@@ -11,6 +11,7 @@ const setupConsumer = async () => {
     // Subscribe to all response topics
     await consumer.subscribe({ topic: "user-existence-response", fromBeginning: false });
     await consumer.subscribe({ topic: "user-creation-response", fromBeginning: false });
+    await consumer.subscribe({ topic: "user-authentication-response", fromBeginning: false });
 
     consumer.run({
         eachMessage: async ({ topic, message }) => {

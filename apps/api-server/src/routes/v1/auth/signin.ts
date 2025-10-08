@@ -2,12 +2,10 @@
 // Placeholder for signin functionality, to be implemented.
 
 import { Router } from "express";
+import { signIn } from "../../../controllers/signin/signin";
 
 const signinRouter = Router();
 
-signinRouter.post("/", (req, res) => {
-    // TODO: Implement signin logic
-    res.status(200).json({ message: "Signin placeholder" });
-});
+signinRouter.post("/", signIn);
 
 export default signinRouter;

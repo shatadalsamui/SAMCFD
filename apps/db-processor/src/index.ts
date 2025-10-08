@@ -5,6 +5,7 @@ import { producer } from "@repo/kafka";
 import { setupKafkaConsumer } from "./kafka/kafkaConsumer";
 import { userExistenceHandler } from "./handlers/userExistenceHandler";
 import { userCreationHandler } from "./handlers/userCreationHandler";
+import { userAuthenticationHandler } from "./handlers/userAuthenticationHandler";
 
 const messageHandler = async (topic: string, message: any) => {
     // Handles incoming Kafka messages based on their topic.
@@ -15,7 +16,7 @@ const messageHandler = async (topic: string, message: any) => {
         }
 
         const parsedMessage = JSON.parse(message.value.toString());
-        
+
         // Log message without sensitive data
         const logMessage = { ...parsedMessage };
         if (logMessage.password) {
@@ -30,6 +31,9 @@ const messageHandler = async (topic: string, message: any) => {
             case "user-creation-request":
                 await userCreationHandler(parsedMessage);
                 break;
+            case "user-authentication-request":
+                await userAuthenticationHandler(parsedMessage);
+                break;
             default:
                 console.warn(`Unknown topic: ${topic}`);
         }
@@ -42,15 +46,15 @@ const startDbProcessor = async () => {
     // Starts the DB Processor service by connecting the Kafka producer and setting up the consumer.
     try {
         console.log("Starting DB Processor...");
-        
+
         // Connect producer
         await producer.connect();
         console.log("Producer connected");
 
         // Setup consumer for the topics we want to listen to
-        const topics = ["user-existence-check", "user-creation-request"];
+        const topics = ["user-existence-check", "user-creation-request", "user-authentication-request"];
         await setupKafkaConsumer(topics, messageHandler);
-        
+
         console.log("DB Processor started successfully");
     } catch (error) {
         console.error("Failed to start DB Processor:", error);
