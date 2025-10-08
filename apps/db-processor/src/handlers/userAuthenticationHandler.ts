@@ -19,6 +19,7 @@ export const userAuthenticationHandler = async (message: any) => {
             };
         } else {
             response = {
+                id: user.id,
                 hashedPassword: user.password,
                 correlationId,
             };

@@ -8,7 +8,7 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
 
     try {
         // Verify JWT
-        const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { email: string };
+        const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: string, email: string };
 
         // Check Redis
         const stored = await redisClient.get(`jwt:${token}`);
