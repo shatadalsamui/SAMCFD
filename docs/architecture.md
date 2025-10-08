@@ -1,100 +1,109 @@
 # CFD-Broker Architecture Overview
 
-## High-Level Component Diagram
+## Overall Flow Sequence Diagram
 
 ```mermaid
-graph LR
-    subgraph "Client Layer"
-        Web[Next.js Web App<br/>/app]
-    end
+sequenceDiagram
+    participant Web as Next.js Web App
+    participant API as Express API Server
+    participant Kafka
+    participant DBProc as DB Processor
+    participant DB as PostgreSQL
+    participant Redis
+    participant Email as Email Service
 
-    subgraph "API Layer"
-        API[Express API Server<br/>/api-server<br/>- Auth routes<br/>- OTP handling<br/>- JWT/cookies]
-    end
+    Note over Web,Email: Example: User Signup Flow
+    Web->>API: POST /api/v1/auth/signup (email)
+    API->>API: Validate with Zod (schemas)
+    API->>Kafka: user-existence-check
+    Kafka->>DBProc: Consume message
+    DBProc->>DB: Prisma: findUnique user
+    DB-->>DBProc: User data or null
+    DBProc->>Kafka: user-existence-response
+    Kafka-->>API: Response
+    API->>API: Generate OTP
+    API->>Redis: SET otp:{email} hashedOTP EX 300
+    API->>Email: Send OTP email (Nodemailer)
+    Email-->>API: Email sent
+    API-->>Web: 200 "OTP sent"
 
-    subgraph "Messaging Layer"
-        Kafka[Kafka<br/>/packages/kafka<br/>- Async communication<br/>- Request/Response topics]
-    end
+    Web->>API: POST /api/v1/auth/verify (email, otp, userData)
+    API->>Redis: GET otp:{email}
+    Redis-->>API: hashedOTP
+    API->>API: bcrypt.compare
+    API->>Redis: DEL otp:{email}
+    API->>API: bcrypt.hash password
+    API->>Kafka: user-creation-request
+    Kafka->>DBProc: Consume
+    DBProc->>DB: Prisma: create user
+    DB-->>DBProc: New user
+    DBProc->>Kafka: user-creation-response
+    Kafka-->>API: Response
+    API->>API: jwt.sign ({id, email})
+    API->>API: Set httpOnly cookie
+    API->>Redis: SET jwt:{token} EX 3600
+    API-->>Web: 200 "User created"
 
-    subgraph "Processing Layer"
-        DBProc[DB Processor<br/>/db-processor<br/>- User CRUD<br/>- Kafka consumers<br/>- Prisma queries]
-    end
+    Web->>API: POST /api/v1/auth/signin (email, password)
+    API->>Kafka: user-authentication-request
+    Kafka->>DBProc: Consume
+    DBProc->>DB: Prisma: findUnique user
+    DB-->>DBProc: hashedPassword
+    DBProc->>Kafka: user-authentication-response
+    Kafka-->>API: Response
+    API->>API: bcrypt.compare
+    API->>API: jwt.sign
+    API->>Redis: SET jwt:{token}
+    API-->>Web: 200 "Signed in"
 
-    subgraph "Data Layer"
-        DB[(PostgreSQL<br/>/packages/db<br/>- User data<br/>- Prisma ORM)]
-        Redis[(Redis<br/>/packages/redis<br/>- Sessions<br/>- OTP cache)]
-    end
+    Web->>API: GET /api/v1/auth/me (with cookie)
+    API->>API: requireAuth: jwt.verify
+    API->>Redis: GET jwt:{token}
+    Redis-->>API: Session data
+    API-->>Web: 200 {user: {id, email}}
 
-    subgraph "Shared Packages"
-        Schemas[Schemas<br/>/packages/schemas<br/>- Zod validation]
-        UI[UI Components<br/>/packages/ui<br/>- Reusable React components]
-        Config[TypeScript Config<br/>/packages/typescript-config<br/>- Shared TS settings]
-    end
-
-    Web -->|HTTP Requests| API
-    API -->|Kafka Messages| Kafka
-    Kafka -->|Consume Messages| DBProc
-    DBProc -->|Prisma Queries| DB
-    API -->|Session/OTP Ops| Redis
-    DBProc -->|Response Messages| Kafka
-    Kafka -->|Response Messages| API
-
-    classDef client fill:#e1f5fe
-    classDef api fill:#f3e5f5
-    classDef messaging fill:#fff3e0
-    classDef processing fill:#e8f5e8
-    classDef data fill:#fce4ec
-    classDef shared fill:#f5f5f5
-
-    class Web client
-    class API api
-    class Kafka messaging
-    class DBProc processing
-    class DB,Redis data
-    class Schemas,UI,Config shared
+    Web->>API: POST /api/v1/auth/logout
+    API->>Redis: DEL jwt:{token}
+    API-->>Web: 200 "Logged out"
 ```
 
 ## Architecture Description
 
 ### Core Components
 
-1. **Web App (Next.js)**: Frontend for user interactions (signup, signin, dashboard).
-2. **API Server (Express)**: Handles HTTP requests, auth logic, OTP flows, JWT management.
-3. **DB Processor**: Background service for database operations via Kafka (decoupled for scalability).
-4. **Kafka**: Message broker for async communication between API and DB layers.
-5. **PostgreSQL**: Primary database for user data (via Prisma ORM).
-6. **Redis**: In-memory store for sessions, OTP cache (fast access).
+1. **Web App (Next.js)**: Frontend client for user interactions.
+2. **API Server (Express)**: Handles HTTP requests, validation, auth, OTP, JWT.
+3. **Kafka**: Async messaging for decoupling API and DB operations.
+4. **DB Processor**: Consumes Kafka messages, performs DB queries via Prisma.
+5. **PostgreSQL**: Relational DB for persistent user data.
+6. **Redis**: In-memory cache for sessions and OTPs.
+7. **Email Service**: SMTP for OTP emails (Gmail via Nodemailer).
 
 ### Shared Packages
 
-- **Schemas**: Zod validation schemas for type-safe API inputs.
-- **UI**: Reusable React components for consistent frontend.
-- **TypeScript Config**: Shared TS settings across apps/packages.
+- **Schemas (/packages/schemas)**: Zod for input validation.
+- **UI (/packages/ui)**: Reusable React components.
+- **Kafka (/packages/kafka)**: Shared Kafka client.
+- **Redis (/packages/redis)**: Shared Redis client.
+- **DB (/packages/db)**: Prisma client and migrations.
+- **TypeScript Config (/packages/typescript-config)**: Shared TS settings.
 
-### Data Flow Example (Signup)
+### Key Design Patterns
 
-1. User submits signup form → Web App → API Server
-2. API validates input → Checks user existence via Kafka → DB Processor queries DB
-3. If new user: Generate OTP → Store in Redis → Send email → Respond "OTP sent"
-4. User verifies OTP → API validates → Creates user via Kafka → DB Processor inserts → JWT issued
+- **Event-Driven**: Kafka for async, scalable communication.
+- **Stateless API**: JWT + Redis for sessions (no server-side state).
+- **Security**: bcrypt for passwords, OTP for verification, httpOnly cookies.
+- **Monorepo**: Turborepo for managing packages and builds.
 
-### Key Benefits
-
-- **Decoupled**: API and DB layers communicate via Kafka (no direct DB calls from API).
-- **Scalable**: DB Processor can be scaled independently; Redis for fast sessions.
-- **Secure**: JWT + Redis for stateless auth; bcrypt for passwords; OTP for verification.
-- **Monorepo**: Turborepo manages shared packages and builds.
-
-### Performance Characteristics
+## Performance Notes
 
 - **Signup**: ~3.5s (email bottleneck)
 - **Signin**: ~200ms (Kafka + bcrypt)
-- **Verify OTP**: ~270ms (Kafka + user creation)
+- **Verify OTP**: ~270ms (Kafka + creation)
 - **Logout /me**: <10ms (Redis ops)
 
-### Deployment Considerations
+## Deployment
 
-- Run API Server, DB Processor, Kafka, Redis as separate services.
-- Use Docker for containerization.
-- Environment variables for secrets (JWT_SECRET, DB URLs, etc.).
-- Health checks for Kafka/Redis connectivity.
+- Containerize with Docker (separate containers for API, DBProc, Kafka, Redis).
+- Use env vars for configs (DB URLs, secrets).
+- Scale DBProc independently for high load.
