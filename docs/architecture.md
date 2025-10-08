@@ -3,7 +3,7 @@
 ## High-Level Component Diagram
 
 ```mermaid
-graph TB
+graph LR
     subgraph "Client Layer"
         Web[Next.js Web App<br/>/app]
     end
