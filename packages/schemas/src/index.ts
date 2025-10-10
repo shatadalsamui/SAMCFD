@@ -1,4 +1,4 @@
-import { email, z } from "zod"
+import { email, TimePrecision, z } from "zod"
 
 //SignupSchema
 export const SignupSchema = z.object({
@@ -39,3 +39,9 @@ export const VerifyOtpSchema = z.object({
         .min(2, "Name must be at least 3 characters long")
         .max(50, "Name must be at most 50 characters long"),
 });
+
+export const PriceUpdateSchema = z.object({
+    asset: z.string(),
+    price: z.number(),
+    timestamp: z.number(),
+})

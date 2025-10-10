@@ -1,26 +1,38 @@
 import WebSocket from 'ws';
+import { BACKPACK_WS_URL, ASSETS } from './config';
+import { producer } from '@repo/kafka';
+import { PriceUpdateSchema } from '@repo/schemas';
 
-// The URL you provided
-const BACKPACK_WS_URL = 'wss://ws.backpack.exchange/';
+let reconnectDelay = 1000;
 
-let solPrice: string | null = null;
-let btcPrice: string | null = null;
-let ethPrice: string | null = null;
-let dogePrice: string | null = null;
-let bnbPrice: string | null = null;
+const publishPrice = (symbol: string, midPrice: number) => {
+    const payload = { asset: symbol, price: midPrice, timestamp: Date.now() };
+    const validationResult = PriceUpdateSchema.safeParse(payload);
+    if (validationResult.success) {
+        producer.send({
+            topic: 'price-updates',
+            messages: [{ value: JSON.stringify(payload) }],
+        }).catch(console.error);
+    } else {
+        console.error("Invalid schema:", validationResult.error);
+    }
+};
+
 // A simple function to manage the connection
 const connect = () => {
     // Create a new WebSocket client instance
     const ws = new WebSocket(BACKPACK_WS_URL);
+    producer.connect().catch(console.error);
 
     // 1. Handle the 'open' event: This runs when the connection is successful
     ws.on('open', () => {
         console.log('✅ Connected to Backpack WebSocket.');
+        reconnectDelay = 1000;
 
         // Define the subscription message for our assets
         const subscriptionMessage = {
             method: 'SUBSCRIBE',
-            params: ["ticker.SOL_USDC", "ticker.BTC_USDC", "ticker.ETH_USDC", "ticker.DOGE_USDC", "ticker.BNB_USDC"],
+            params: ASSETS.map(asset => `bookTicker.${asset}`),
         };
 
         // Send the message to the server to start receiving price data
@@ -29,42 +41,44 @@ const connect = () => {
 
     // 2. Handle the 'message' event: This runs for every new piece of data received
     ws.on('message', (data: string) => {
-        const message = JSON.parse(data);
+        const parsedMsg = JSON.parse(data);
+        if (parsedMsg?.data?.e === 'bookTicker') {
+            const symbol = parsedMsg.data.s; // e.g., "SOL_USDC"
+            const ask = parseFloat(parsedMsg.data.a);
+            const bid = parseFloat(parsedMsg.data.b);
+            const midPrice = (ask + bid) / 2;
 
-        // The ticker data is usually inside a 'data' object
-        switch (message.stream) {
-            case "ticker.SOL_USDC":
-                solPrice = message.data.c;
-                console.log(`UPDATE ==> SOL Price: $${solPrice}`);
-                break;
-            case "ticker.BTC_USDC":
-                btcPrice = message.data.c;
-                console.log(`UPDATE ==> BTC Price: $${btcPrice}`);
-                break;
-            case "ticker.ETH_USDC":
-                ethPrice = message.data.c;
-                console.log(`UPDATE ==> ETH Price: $${ethPrice}`);
-                break;
-            case "ticker.DOGE_USDC":
-                dogePrice = message.data.c;
-                console.log(`UPDATE ==> DOGE Price: $${dogePrice}`);
-                break;
-            case "ticker.BNB_USDC":
-                bnbPrice = message.data.c;
-                console.log(`UPDATE ==> BNB Price: $${bnbPrice}`);
-                console.log("<------------------------------------->")
-                break;
-            default:
-                // Ignore other streams
-                break;
+            // Update the price variables and log
+            switch (symbol) {
+                case "SOL_USDC":
+                    //console.log(`UPDATE ==> SOL Midpoint Price: $${midPrice}`);
+                    publishPrice(symbol, midPrice);
+                    break;
+                case "BTC_USDC":
+                    //console.log(`UPDATE ==> BTC Midpoint Price: $${midPrice}`);
+                    publishPrice(symbol, midPrice);
+                    break;
+                case "ETH_USDC":
+                    //console.log(`UPDATE ==> ETH Midpoint Price: $${midPrice}`);
+                    publishPrice(symbol, midPrice);
+                    break;
+                case "DOGE_USDC":
+                    //console.log(`UPDATE ==> DOGE Midpoint Price: $${midPrice}`);
+                    publishPrice(symbol, midPrice);
+                    break;
+                case "BNB_USDC":
+                    //console.log(`UPDATE ==> BNB Midpoint Price: $${midPrice}`);
+                    publishPrice(symbol, midPrice);
+                    break;
+            }
         }
     });
 
     // 3. Handle the 'close' event: This runs if the connection is lost
     ws.on('close', () => {
-        console.error('❌ Disconnected from Backpack. Reconnecting in 5 seconds...');
-        // Automatically try to reconnect after a delay
-        setTimeout(connect, 5000);
+        console.error(`❌ Disconnected from Backpack. Reconnecting in ${reconnectDelay / 1000} seconds...`);
+        setTimeout(connect, reconnectDelay);
+        reconnectDelay = Math.min(reconnectDelay * 2, 60000); // Double delay, max 1 minute
     });
 
     // 4. Handle errors
