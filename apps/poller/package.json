@@ -1,0 +1,16 @@
+{
+  "name": "@samcfd/poller",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "start": "bun run src/index.ts"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.5.0"
+  }
+}
