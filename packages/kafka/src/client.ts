@@ -14,6 +14,12 @@ const producer: Producer = kafka.producer({
 // Create a Kafka consumer
 const consumer: Consumer = kafka.consumer({ groupId: 'samcfd-group' });
 
+// Function to create a new consumer instance
+export const createConsumer = (groupId: string) => {
+  return kafka.consumer({ groupId });
+};
+
+
 // Export the Kafka instance, producer, and consumer
 export { producer, consumer };
 export default kafka;
