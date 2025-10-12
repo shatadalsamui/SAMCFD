@@ -1,10 +1,10 @@
 # CFD-Broker: Real-Time CFD Trading Platform
 
-CFD-Broker is a **production-grade, event-driven trading platform** for Contracts for Difference (CFDs), built for **scalability, reliability, and ultra-low-latency performance**. The platform features secure user authentication, high-frequency price streaming, and a modern web interface for trading simulations. Architected as a monorepo with Turborepo, it leverages a **microservices architecture** powered by the Bun runtime, Kafka for asynchronous messaging, Redis for low-latency caching, and PostgreSQL for robust data persistence.
+CFD-Broker is a production-grade, event-driven trading platform for Contracts for Difference (CFDs), built for scalability, reliability, and ultra-low-latency performance. The platform features secure user authentication, high-frequency price streaming, and a modern web interface for trading simulations. Architected as a monorepo with Turborepo, it leverages a microservices architecture powered by the Bun runtime, Kafka for asynchronous messaging, Redis for low-latency caching, and PostgreSQL for robust data persistence.
 
 ---
 
-## 🚀 Key Features & Metrics
+## Key Features & Metrics
 
 - **Massive User Scalability:** Designed to support 100,000+ registered users per moderate instance (2-4 vCPUs, 8GB RAM), with seamless horizontal scaling.
 - **Ultra-Low-Latency Streaming:** Real-time price updates delivered to 1,000+ concurrent WebSocket clients with <50ms end-to-end latency.
@@ -16,57 +16,57 @@ CFD-Broker is a **production-grade, event-driven trading platform** for Contract
 
 ---
 
-## 🏗️ Architecture Overview
+## Architecture Overview
 
-CFD-Broker is a **microservices-based platform** using event-driven communication via Kafka, in-memory caching with Redis, and PostgreSQL for persistence. All services are container-ready and can be orchestrated via Docker Compose or Kubernetes.
+CFD-Broker is a microservices-based platform using event-driven communication via Kafka, in-memory caching with Redis, and PostgreSQL for persistence. All services are container-ready and can be orchestrated via Docker Compose or Kubernetes.
 
 ### High-Level Architecture Diagram
 
 ```mermaid
 graph TB
     subgraph "Frontend Layer"
-        Web[Web App<br/>Next.js<br/>Port: 3000]
+        Web["Web App\nNext.js\nPort: 3000"]
     end
 
     subgraph "API Layer"
-        API[API Server<br/>Express.js + TS<br/>Ports: 3001 (HTTP), 8080 (WS)]
+        API["API Server\nExpress.js + TS\nPorts: 3001 (HTTP), 8080 (WS)"]
     end
 
     subgraph "Messaging Layer"
-        Kafka[Kafka<br/>Message Broker<br/>Topics:<br/>user-requests<br/>user-responses<br/>price-updates]
+        Kafka["Kafka\nMessage Broker\nTopics:\nuser-requests\nuser-responses\nprice-updates"]
     end
 
     subgraph "Processing Layer"
-        DBProc[DB Processor<br/>Bun + KafkaJS<br/>Prisma ORM]
-        Poller[Poller<br/>Bun + WS Client<br/>Backpack Exchange]
+        DBProc["DB Processor\nBun + KafkaJS\nPrisma ORM"]
+        Poller["Poller\nBun + WS Client\nBackpack Exchange"]
     end
 
     subgraph "Data Layer"
-        DB[(PostgreSQL<br/>User Table)]
-        Redis[(Redis<br/>OTP Cache<br/>Session Tokens<br/>Price Cache)]
+        DB["PostgreSQL\nUser Table"]
+        Redis["Redis\nOTP Cache\nSession Tokens\nPrice Cache"]
     end
 
     subgraph "External Services"
-        Email[Gmail SMTP<br/>OTP Emails]
-        Backpack[Backpack Exchange<br/>Real-Time Prices]
+        Email["Gmail SMTP\nOTP Emails"]
+        Backpack["Backpack Exchange\nReal-Time Prices"]
     end
 
-    Web -->|HTTP/WS| API
-    API -->|Produce| Kafka
-    API -->|Cache Ops| Redis
-    API -->|Send OTP| Email
-    Poller -->|Poll Prices| Backpack
-    Poller -->|Produce| Kafka
-    Kafka -->|Consume| DBProc
-    DBProc -->|Read/Write| DB
-    DBProc -->|Produce Responses| Kafka
-    Kafka -->|Consume Responses| API
-    API -->|Broadcast Prices| Web
+    Web -->|"HTTP/WS"| API
+    API -->|"Produce"| Kafka
+    API -->|"Cache Ops"| Redis
+    API -->|"Send OTP"| Email
+    Poller -->|"Poll Prices"| Backpack
+    Poller -->|"Produce"| Kafka
+    Kafka -->|"Consume"| DBProc
+    DBProc -->|"Read/Write"| DB
+    DBProc -->|"Produce Responses"| Kafka
+    Kafka -->|"Consume Responses"| API
+    API -->|"Broadcast Prices"| Web
 ```
 
 ---
 
-## 🧩 Project Structure
+## Project Structure
 
 ```
 apps/
@@ -87,7 +87,7 @@ packages/                # Shared libraries
 
 ---
 
-## 🛠️ Microservices & Packages
+## Microservices & Packages
 
 ### API Server ([`apps/api-server`](apps/api-server))
 - **Express.js + TypeScript**: Handles HTTP requests for authentication (signup, signin, verify OTP, logout, /me) and price queries.
@@ -124,7 +124,7 @@ packages/                # Shared libraries
 
 ---
 
-## 🔥 Complex Implementations & Highlights
+## Complex Implementations & Highlights
 
 - **Kafka Request-Response Pattern:**  
   The API server uses a robust request-response pattern over Kafka for all user-related flows (existence check, creation, authentication), with correlation IDs and pending request maps for reliable async communication.
@@ -149,7 +149,7 @@ packages/                # Shared libraries
 
 ---
 
-## ⚡ Performance Benchmarks
+## Performance Benchmarks
 
 - **Signup:** ~3.5s (email bottleneck via SMTP)
 - **Signin:** ~200ms (Kafka round-trip + bcrypt)
@@ -162,7 +162,7 @@ packages/                # Shared libraries
 
 ---
 
-## 🏢 Setup & Installation
+## Setup & Installation
 
 ### Prerequisites
 
@@ -196,7 +196,7 @@ packages/                # Shared libraries
 
 ---
 
-## 🏃 Running the Project
+## Running the Project
 
 Use Turborepo for development:
 
@@ -220,7 +220,7 @@ turbo dev --filter=db-processor
 
 ---
 
-## 📈 Scalability & Production Notes
+## Scalability & Production Notes
 
 - **Stateless Services:** All services can be scaled horizontally (multiple API servers, DB processors, pollers).
 - **Kafka & Redis:** Cluster for high throughput and failover.
@@ -231,14 +231,14 @@ turbo dev --filter=db-processor
 
 ---
 
-## 📚 Documentation
+## Documentation
 
 - **Architecture & Flows:** See [`docs/architecture.md`](docs/architecture.md), [`docs/signup-flow.md`](docs/signup-flow.md), [`docs/signin-flow.md`](docs/signin-flow.md), [`docs/verify-otp-flow.md`](docs/verify-otp-flow.md), [`docs/logout-flow.md`](docs/logout-flow.md), [`docs/me-flow.md`](docs/me-flow.md)
 - **Codebase:** All services and packages are documented inline with JSDoc and comments.
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 - Follow ESLint/Prettier rules.
 - Use Zod for validation.
@@ -247,7 +247,7 @@ turbo dev --filter=db-processor
 
 ---
 
-## 🔗 Useful Links
+## Useful Links
 
 - [Turborepo Docs](https://turborepo.com/docs)
 - [Prisma Docs](https://www.prisma.io/docs)
