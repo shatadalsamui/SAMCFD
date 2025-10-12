@@ -59,12 +59,6 @@ graph TB
 This Turborepo workspace is organized as follows:
 
 ```
-.gitignore
-index.ts
-package.json
-README.md
-tsconfig.json
-turbo.json
 apps/
 ├── api-server/          # Express.js API server (auth, prices, WebSocket)
 ├── db-processor/        # Kafka consumer for DB operations
@@ -148,7 +142,7 @@ packages/                # Shared libraries
 ## Setup and Installation
 
 ### Prerequisites
-- Node.js/Bun, PostgreSQL, Redis, Kafka (e.g., via Docker).
+- Bun (runtime for all services), PostgreSQL, Redis, Kafka (e.g., via Docker).
 - Gmail account for SMTP (set app password).
 
 ### Installation

@@ -21,8 +21,8 @@ graph TB
     end
 
     subgraph "Processing Layer"
-        DBProc[DB Processor<br/>Node.js + KafkaJS<br/>- Kafka Consumer<br/>- Prisma ORM<br/>- User CRUD<br/>- Stateless]
-        Poller[Poller<br/>Node.js + WS Client<br/>- Backpack WS Connection<br/>- Price Polling<br/>- Kafka Producer<br/>- Assets: SOL, BTC, ETH, DOGE, BNB]
+        DBProc[DB Processor<br/>Bun + KafkaJS<br/>- Kafka Consumer<br/>- Prisma ORM<br/>- User CRUD<br/>- Stateless]
+        Poller[Poller<br/>Bun + WS Client<br/>- Backpack WS Connection<br/>- Price Polling<br/>- Kafka Producer<br/>- Assets: SOL, BTC, ETH, DOGE, BNB]
     end
 
     subgraph "Data Layer"
@@ -77,7 +77,8 @@ graph TB
 - **Dependencies**: `@repo/kafka`, `@repo/redis`, `@repo/schemas`, Nodemailer.
 
 #### DB Processor (`apps/db-processor`)
-- **Technology**: Node.js, KafkaJS, Prisma.
+
+- **Technology**: Bun, KafkaJS, Prisma.
 - **Purpose**: Handles database operations asynchronously via Kafka.
 - **Handlers**:
   - `userExistenceHandler`: Check if user exists.
@@ -88,7 +89,7 @@ graph TB
 - **Dependencies**: `@repo/kafka`, `@repo/db`.
 
 #### Poller (`apps/poller`)
-- **Technology**: Node.js, WebSocket client.
+- **Technology**: Bun, WebSocket client.
 - **Purpose**: Fetches real-time price data from Backpack Exchange.
 - **Assets Polled**: SOL_USDC, BTC_USDC, ETH_USDC, DOGE_USDC, BNB_USDC.
 - **Flow**: Connects to `wss://ws.backpack.exchange/`, subscribes to `bookTicker` streams, validates with Zod, publishes to `price-updates` topic.
