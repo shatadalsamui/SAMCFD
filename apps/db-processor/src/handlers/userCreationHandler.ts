@@ -26,8 +26,16 @@ export const userCreationHandler = async (message: any) => {
 
         // Step 1: Create the user in the database (password already hashed by API server)
         // Note: Password is already hashed, so we store it directly
-        await prisma.user.create({
-            data: { email, name, password, verfied: true },
+        await prisma.$transaction(async (tx) => {
+            // Create the user (password already hashed by API server)
+            const user = await tx.user.create({
+                data: { email, name, password, verfied: true },
+            });
+
+            // Create the balance for the user with initial $5,000 (500,000 cents)
+            await tx.balance.create({
+                data: { userId: user.id, amount: 500000 },
+            });
         });
 
         console.log(`User with email ${email} created successfully.`);
@@ -44,7 +52,7 @@ export const userCreationHandler = async (message: any) => {
                 },
             ],
         });
-    } catch (error:any) {
+    } catch (error: any) {
         console.error("Error processing user creation request:", error);
         await producer.send({
             topic: "user-creation-response",

@@ -15,11 +15,38 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
+  id        String    @id @default(uuid())
+  email     String    @unique
   name      String
   password  String
-  verfied   Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  verfied   Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  balance   Balance?
+  Trade     Trade[]
+}
+
+model Balance {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+  amount Int //store in paisa ,cents the lowest possible unit 
+
+  @@index([userId])
+}
+
+model Trade {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id])
+  asset      String // e.g., "BTC"
+  type       String // "long" or "short"
+  margin     Int
+  leverage   Int
+  entryPrice Int? // Price at which the trade was opened
+  status     String // "OPEN", "CLOSED", "LIQUIDATED"
+  createdAt  DateTime  @default(now())
+  closedAt   DateTime?
+
+  @@index([userId])
 }
