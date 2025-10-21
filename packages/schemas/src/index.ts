@@ -1,4 +1,4 @@
-import { email, TimePrecision, z } from "zod"
+import { z } from "zod"
 
 //SignupSchema
 export const SignupSchema = z.object({
@@ -45,3 +45,15 @@ export const PriceUpdateSchema = z.object({
     price: z.number(),
     timestamp: z.number(),
 })
+
+export const createOrderSchema = z.object({
+    asset: z.string().min(1, "Asset is required"),
+    type: z.enum(["long", "short"]),  // Removed invalid required_error
+    margin: z.number().int().positive("Margin must be a positive integer"),
+    leverage: z.number().int().positive("Leverage must be a positive integer"),
+    slippage: z.number().int().positive("Slippage must be a positive integer"),
+});
+
+export const closeOrderSchema = z.object({
+    orderId: z.string().uuid("Invalid order ID"),  // Assuming UUID format
+});

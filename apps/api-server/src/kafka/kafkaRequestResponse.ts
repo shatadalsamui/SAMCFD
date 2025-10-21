@@ -13,7 +13,9 @@ const setupConsumer = async () => {
     await consumer.subscribe({ topic: "user-creation-response", fromBeginning: false });
     await consumer.subscribe({ topic: "user-authentication-response", fromBeginning: false });
     await consumer.subscribe({ topic: "balance-query-response", fromBeginning: false });
-    
+    await consumer.subscribe({ topic: "trade-create-response", fromBeginning: false }); 
+    await consumer.subscribe({ topic: "trade-close-response", fromBeginning: false }); 
+
     consumer.run({
         eachMessage: async ({ topic, message }) => {
             if (!message.value) {

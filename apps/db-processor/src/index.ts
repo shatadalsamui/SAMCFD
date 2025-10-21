@@ -7,6 +7,8 @@ import { userExistenceHandler } from "./handlers/userExistenceHandler";
 import { userCreationHandler } from "./handlers/userCreationHandler";
 import { userAuthenticationHandler } from "./handlers/userAuthenticationHandler";
 import { balanceQueryHandler } from "./handlers/balanceQueryHandler";
+import { tradeCreateHandler } from "./handlers/tradeCreateHandler";
+import { tradeCloseHandler } from "./handlers/tradeCloseHandler";
 
 const messageHandler = async (topic: string, message: any) => {
     // Handles incoming Kafka messages based on their topic.
@@ -38,6 +40,12 @@ const messageHandler = async (topic: string, message: any) => {
             case "balance-query-request":
                 await balanceQueryHandler(parsedMessage);
                 break;
+            case "trade-create-request":
+                await tradeCreateHandler(parsedMessage);
+                break;
+            case "trade-close-request":
+                await tradeCloseHandler(parsedMessage);
+                break;
             default:
                 console.warn(`Unknown topic: ${topic}`);
         }
@@ -56,7 +64,16 @@ const startDbProcessor = async () => {
         console.log("Producer connected");
 
         // Setup consumer for the topics we want to listen to
-        const topics = ["user-existence-check", "user-creation-request", "user-authentication-request", "balance-query-request"];
+        const topics =
+            [
+                "user-existence-check",
+                "user-creation-request",
+                "user-authentication-request",
+                "balance-query-request",
+                "trade-create-request",
+                "trade-close-request"
+            ];
+
         await setupKafkaConsumer(topics, messageHandler);
 
         console.log("DB Processor started successfully");
