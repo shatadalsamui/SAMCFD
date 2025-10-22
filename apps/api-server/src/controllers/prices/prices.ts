@@ -1,7 +1,7 @@
 import WebSocket, { WebSocketServer } from "ws";
 import dotenv from "dotenv";
 import { redisClient } from "@repo/redis";
-import { setPriceUpdateCallback } from "../../kafka/kafkaFireAndForget";
+import { setPriceUpdateCallback } from "../../kafka/kafkaFireAndForgetConsumer";
 import type { Request, Response } from "express";
 
 dotenv.config();

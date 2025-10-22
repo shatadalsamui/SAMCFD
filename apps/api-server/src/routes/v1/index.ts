@@ -18,7 +18,6 @@ v1Router.use("/prices", pricesRouter);
 //Mount balance router 
 v1Router.use("/balance", balanceRouter);
 
-
 //Mount trade router
 v1Router.use("/trade", tradeRouter);
 

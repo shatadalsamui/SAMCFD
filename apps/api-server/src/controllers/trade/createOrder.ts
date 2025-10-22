@@ -1,40 +1,60 @@
-import type { Request, Response } from "express";
-import { kafkaRequestResponse } from "../../kafka/kafkaRequestResponse";
 import { createOrderSchema } from "@repo/schemas";
+import { producer } from "@repo/kafka";
+import { kafkaRequestResponse } from "../../kafka/kafkaRequestResponse";
+import { v4 as uuidv4 } from "uuid";
+import type { Request, Response } from "express";
 
 export const createOrderController = async (req: Request, res: Response) => {
     try {
+        // 1. Get userId from auth middleware
         const userId = (req as any).user.id;
-        const validatedData = createOrderSchema.safeParse(req.body);
 
-        if (!validatedData.success) {
-            return res.status(400).json({ message: "Invalid input", errors: validatedData.error.issues });
+        // 2. Validate request body
+        const result = createOrderSchema.safeParse(req.body);
+        if (!result.success) {
+            return res.status(400).json({ message: "Invalid input", errors: result.error.issues });
         }
+        const { margin, asset, type, leverage, slippage } = result.data;
 
-        // Need to check balance first
+        // 3. Check balance via Kafka request-response
         const balanceResponse = await kafkaRequestResponse(
             "balance-query-request",
             "balance-query-response",
             { userId }
         );
+        const balance = balanceResponse?.amount ?? 0;
 
-        if (!balanceResponse.success || balanceResponse.balance < validatedData.data.margin) {
+        if (balance < margin) {
             return res.status(400).json({ message: "Insufficient balance" });
         }
 
-        const tradeResponse = await kafkaRequestResponse(
-            "trade-create-request",
-            "trade-create-response",
-            { userId, ...validatedData.data }
-        );
+        // 4. Generate orderId
+        const orderId = uuidv4();
 
-        if (!tradeResponse.success) {
-            return res.status(400).json({ message: tradeResponse.message });
-        }
+        // 5. Fire-and-forget: publish to Kafka
+        await producer.send({
+            topic: "trade-create-request",
+            messages: [
+                {
+                    key: orderId,
+                    value: JSON.stringify({
+                        userId,
+                        orderId,
+                        asset,
+                        type,
+                        margin,
+                        leverage,
+                        slippage,
+                        timestamp: Date.now(),
+                    }),
+                },
+            ],
+        });
 
-        res.json({ orderId: tradeResponse.orderId });
+        // 6. Respond immediately
+        return res.status(200).json({ orderId });
     } catch (error: any) {
-        console.error("Error creating order:", error);
-        res.status(500).json({ message: "Internal server error" });
+        console.error("Error in createOrderController:", error);
+        return res.status(500).json({ message: "Internal server error" });
     }
 };

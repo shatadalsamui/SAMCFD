@@ -1,29 +1,33 @@
-import type { Request, Response } from "express";
-import { kafkaRequestResponse } from "../../kafka/kafkaRequestResponse";
 import { closeOrderSchema } from "@repo/schemas";
+import { producer } from "@repo/kafka";
+import type { Request, Response } from "express";
 
 export const closeOrderController = async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.id;
-        const validatedData = closeOrderSchema.safeParse(req.body);
+        const result = closeOrderSchema.safeParse(req.body);
 
-        if (!validatedData.success) {
-            return res.status(400).json({ message: "Invalid input", errors: validatedData.error.issues });
+        if (!result.success) {
+            return res.status(400).json({ message: "Invalid input", errors: result.error.issues });
         }
 
-        const tradeResponse = await kafkaRequestResponse(
-            "trade-close-request",
-            "trade-close-response",
-            { userId, orderId: validatedData.data.orderId }
-        );
+        await producer.send({
+            topic: "trade-close-request",
+            messages: [
+                {
+                    key: result.data.orderId,
+                    value: JSON.stringify({
+                        userId,
+                        orderId: result.data.orderId,
+                        timestamp: Date.now(),
+                    }),
+                },
+            ],
+        });
 
-        if (!tradeResponse.success) {
-            return res.status(400).json({ message: tradeResponse.message });
-        }
-
-        res.json({ message: "Order closed successfully" });
+        return res.status(200).json({ message: "Close order submitted" });
     } catch (error: any) {
-        console.error("Error closing order:", error);
-        res.status(500).json({ message: "Internal server error" });
+        console.error("Error in closeOrderController:", error);
+        return res.status(500).json({ message: "Internal server error" });
     }
 };
