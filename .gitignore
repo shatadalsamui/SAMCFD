@@ -36,6 +36,10 @@ out/
 build
 dist
 
+# Rust (engine microservice)
+apps/engine/target/
+apps/engine/Cargo.lock
+
 
 # Debug
 npm-debug.log*
