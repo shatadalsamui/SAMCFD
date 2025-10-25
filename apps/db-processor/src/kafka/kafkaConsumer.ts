@@ -5,8 +5,8 @@ import { Kafka } from "kafkajs";
 
 // Create a separate Kafka consumer for the DB processor
 const kafka = new Kafka({
-  clientId: 'db-processor',
-  brokers: [process.env.KAFKA_BROKER || 'localhost:9092'],
+    clientId: 'db-processor',
+    brokers: [process.env.KAFKA_BROKER || 'localhost:9092'],
 });
 
 const dbConsumer = kafka.consumer({ groupId: 'db-processor-group' });
