@@ -22,9 +22,11 @@ export const createOrderController = async (req: Request, res: Response) => {
             "balance-query-response",
             { userId }
         );
-        const balance = balanceResponse?.amount ?? 0;
 
-        if (balance < margin) {
+        const balance = balanceResponse?.balance ?? 0;
+        const marginUnits = Math.round(margin * 100);
+
+        if (balance < marginUnits) {
             return res.status(400).json({ message: "Insufficient balance" });
         }
 
@@ -42,7 +44,7 @@ export const createOrderController = async (req: Request, res: Response) => {
                         orderId,
                         asset,
                         type,
-                        margin,
+                        margin: marginUnits,
                         leverage,
                         slippage,
                         timestamp: Date.now(),

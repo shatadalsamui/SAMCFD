@@ -1,4 +1,5 @@
 // Import the state module and types module.
+mod kafka;
 mod state;
 mod types;
 
@@ -13,8 +14,8 @@ async fn main() {
 
     // Here you will later spawn Kafka consumer tasks and pass `state.clone()` to each.
     // Example:
-    // tokio::spawn(consume_trade_requests(state.clone()));
-    // tokio::spawn(consume_price_updates(state.clone()));
+    tokio::spawn(kafka::consumer::start_consumer());
+    tokio::spawn(kafka::producer::start_producer());
 
     // For now, just keep the process alive (so the async runtime doesn't exit).
     // Remove this later when you add real tasks.
