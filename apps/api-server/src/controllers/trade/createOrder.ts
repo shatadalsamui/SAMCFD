@@ -14,8 +14,31 @@ export const createOrderController = async (req: Request, res: Response) => {
         if (!result.success) {
             return res.status(400).json({ message: "Invalid input", errors: result.error.issues });
         }
-        const { margin, asset, type, leverage, slippage } = result.data;
+        const {
+            margin,
+            asset,
+            side,
+            leverage,
+            slippage,
+            orderType,
+            limitPrice,
+            stopLossPercent,
+            takeProfitPercent,
+            tradeTerm,
+            timeInForce,
+            expiryTimestamp,
+        } = result.data;
 
+        if (side === "sell") {
+            const holdingsResponse = await kafkaRequestResponse(
+                "holdings-query-request",
+                "holdings-query-response",
+                { userId, asset, margin, leverage }
+            );
+            if (!holdingsResponse?.sufficient) {
+                return res.status(400).json({ message: "Insufficient holdings for sell order" });
+            }
+        }
         // 3. Check balance via Kafka request-response
         const balanceResponse = await kafkaRequestResponse(
             "balance-query-request",
@@ -25,15 +48,18 @@ export const createOrderController = async (req: Request, res: Response) => {
 
         const balance = balanceResponse?.balance ?? 0;
         const marginUnits = Math.round(margin * 100);
+        const limitPriceUnits = limitPrice != null ? Math.round(limitPrice * 100) : null;
 
         if (balance < marginUnits) {
             return res.status(400).json({ message: "Insufficient balance" });
         }
 
+
+
         // 4. Generate orderId
         const orderId = uuidv4();
 
-        // 5. Fire-and-forget: publish to Kafka
+        // 5. Fire-and-forget: publish sanitized user fields to Kafka (engine computes entryPrice/pnl/etc)
         await producer.send({
             topic: "trade-create-request",
             messages: [
@@ -43,10 +69,17 @@ export const createOrderController = async (req: Request, res: Response) => {
                         userId,
                         orderId,
                         asset,
-                        type,
+                        side,
                         margin: marginUnits,
                         leverage,
                         slippage,
+                        orderType,
+                        limitPrice: limitPriceUnits,
+                        stopLossPercent,
+                        takeProfitPercent,
+                        tradeTerm,
+                        timeInForce,
+                        expiryTimestamp: expiryTimestamp ?? null,
                         timestamp: Date.now(),
                     }),
                 },

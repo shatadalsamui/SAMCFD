@@ -47,13 +47,64 @@ export const PriceUpdateSchema = z.object({
 })
 
 export const createOrderSchema = z.object({
-    asset: z.string().min(1, "Asset is required"),
-    type: z.enum(["long", "short"]),  // Removed invalid required_error
-    margin: z.number().int().positive("Margin must be a positive integer"),
-    leverage: z.number().int().positive("Leverage must be a positive integer"),
-    slippage: z.number().int().positive("Slippage must be a positive integer"),
+  asset: z.string().min(1, "Asset is required"),
+  side: z.enum(["buy", "sell"]),
+  margin: z.number().positive("Margin must be a positive number"),
+  leverage: z.number().int().positive("Leverage must be a positive integer"),
+  slippage: z.number().int().nonnegative("Slippage must be a non-negative integer"),
+  orderType: z.optional(z.enum(["market", "limit"])),
+  // accept omitted key or explicit null from clients; superRefine enforces presence for limit orders
+  limitPrice: z.number().positive("limitPrice must be a positive number").nullable().optional(),
+  stopLossPercent: z.optional(z.number()),
+  takeProfitPercent: z.optional(z.number()),
+  tradeTerm: z.optional(z.enum(["INTRAHOUR", "INTRADAY", "WEEK", "MONTH", "YEAR"])),
+  timeInForce: z.optional(z.enum(["IOC", "FOK", "DAY", "GTC", "EXPIRE_AT"])),
+  expiryTimestamp: z.optional(z.number().int().nonnegative("expiryTimestamp must be a non-negative integer")),
+}).superRefine((data, ctx) => {
+  // require limitPrice for limit orders
+  if (data.orderType === "limit" && (data.limitPrice == null)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "limitPrice is required for limit orders",
+      path: ["limitPrice"],
+    });
+  }
+
+  // validate percent bounds if provided
+  if (data.stopLossPercent != null) {
+    if (typeof data.stopLossPercent !== "number" || data.stopLossPercent <= 0 || data.stopLossPercent >= 100) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "stopLossPercent must be > 0 and < 100",
+        path: ["stopLossPercent"],
+      });
+    }
+  }
+
+  if (data.takeProfitPercent != null) {
+    if (typeof data.takeProfitPercent !== "number" || data.takeProfitPercent <= 0 || data.takeProfitPercent >= 100) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "takeProfitPercent must be > 0 and < 100",
+        path: ["takeProfitPercent"],
+      });
+    }
+  }
+
+  // expiryTimestamp sanity: if provided ensure it's in the future
+  if (data.expiryTimestamp != null) {
+    const now = Date.now();
+    if (data.expiryTimestamp <= now) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "expiryTimestamp must be in the future",
+        path: ["expiryTimestamp"],
+      });
+    }
+  }
 });
 
 export const closeOrderSchema = z.object({
     orderId: z.string().uuid("Invalid order ID"),  // Assuming UUID format
 });
+

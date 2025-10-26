@@ -1,79 +1,81 @@
-// Import serde traits for (de)serialization.
 use serde::{Deserialize, Serialize};
 
-/// Represents a trade (position) in the engine.
-/// Field names use Rust's snake_case convention.
-/// The #[serde(rename = "...")] attribute ensures JSON keys match camelCase used by other services.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Trade {
-    pub id: String,
-    #[serde(rename = "userId")]
-    pub user_id: String,
-    pub asset: String,
-    #[serde(rename = "type")]
-    pub trade_type: String, // "long" or "short"
-    pub margin: i64,
-    pub leverage: i32,
-    #[serde(rename = "entryPrice")]
-    pub entry_price: Option<i64>,
-    pub status: String,
-    #[serde(rename = "createdAt")]
-    pub created_at: Option<String>,
-    #[serde(rename = "closedAt")]
-    pub closed_at: Option<String>,
+#[serde(rename_all = "lowercase")]
+pub enum Side {
+    Buy,
+    Sell,
 }
 
-/// Represents a user's balance in the engine.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Balance {
-    #[serde(rename = "userId")]
-    pub user_id: String,
-    pub amount: i64,
+#[serde(rename_all = "lowercase")]
+pub enum OrderType {
+    Market,
+    Limit,
 }
 
-/// Message sent from API server to engine to request trade creation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateTradeRequest {
-    #[serde(rename = "userId")]
     pub user_id: String,
-    #[serde(rename = "orderId")]
     pub order_id: String,
     pub asset: String,
-    #[serde(rename = "type")]
-    pub trade_type: String,
-    pub margin: i64,
+    pub side: Side,                       // "buy" | "sell"
+    pub margin: i64,                      // smallest unit (cents)
     pub leverage: i32,
-    pub slippage: i32,
+    pub slippage: Option<i32>,
+    pub order_type: Option<OrderType>,    // "market" | "limit"
+    pub limit_price: Option<i64>,         // smallest unit
+    pub stop_loss_percent: Option<f64>,
+    pub take_profit_percent: Option<f64>,
+    pub trade_term: Option<String>,
+    pub time_in_force: Option<String>,
+    pub expiry_timestamp: Option<i64>,    // ms since epoch
     pub timestamp: i64,
 }
 
-/// Price update message structure.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PriceUpdate {
     pub asset: String,
-    pub price: i64,
+    pub price: i64,      // smallest unit
     pub timestamp: i64,
 }
 
-/// Outcome produced by the engine after processing a trade request or liquidation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Trade {
+    pub id: String,
+    pub user_id: String,
+    pub asset: String,
+    pub side: Side,
+    pub margin: i64,
+    pub leverage: i32,
+    pub entry_price: Option<i64>,
+    pub close_price: Option<i64>,
+    pub pnl: Option<i64>,
+    pub status: Option<String>,
+    pub created_at: Option<i64>,
+    pub closed_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TradeOutcome {
-    #[serde(rename = "orderId")]
     pub order_id: String,
-    #[serde(rename = "userId")]
     pub user_id: String,
     pub success: bool,
     pub reason: Option<String>,
     pub pnl: Option<i64>,
-    pub status: String,
+    pub status: Option<String>,
 }
 
-/// Message sent from API server to engine to request trade closure.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CloseTradeRequest {
-    #[serde(rename = "userId")]
     pub user_id: String,
-    #[serde(rename = "orderId")]
     pub order_id: String,
+    pub close_price: Option<i64>, // engine provides when closing
+    pub reason: Option<String>,
     pub timestamp: i64,
 }

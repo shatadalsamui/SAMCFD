@@ -15,15 +15,16 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
+  id        String     @id @default(uuid())
+  email     String     @unique
   name      String
   password  String
-  verified   Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  verified  Boolean    @default(false)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
   balance   Balance?
   Trade     Trade[]
+  Holdings  Holdings[]
 }
 
 model Balance {
@@ -32,22 +33,91 @@ model Balance {
   user   User   @relation(fields: [userId], references: [id])
   amount Int //store in paisa ,cents the lowest possible unit 
 
-  @@index([userId])
+}
+
+enum Side {
+  BUY
+  SELL
+}
+
+enum OrderType {
+  MARKET
+  LIMIT
+}
+
+enum TradeTerm {
+  INTRAHOUR
+  INTRADAY
+  WEEK
+  MONTH
+  YEAR
+}
+
+enum TimeInForce {
+  IOC
+  FOK
+  DAY
+  GTC
+  EXPIRE_AT
+}
+
+enum TradeStatus {
+  OPEN
+  MATCHED
+  FILLED
+  CLOSED
+  LIQUIDATED
+  CANCELLED
 }
 
 model Trade {
-  id         String    @id @default(uuid())
-  userId     String
-  user       User      @relation(fields: [userId], references: [id])
-  asset      String // e.g., "BTC"
-  type       String // "long" or "short"
-  margin     Int
-  leverage   Int
-  slippage   Int
-  entryPrice Int? // Price at which the trade was opened
-  status     String // "OPEN", "CLOSED", "LIQUIDATED"
-  createdAt  DateTime  @default(now())
-  closedAt   DateTime?
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+  asset  String // e.g., "BTC"
 
+  // replaced "type" string with enum Side
+  side Side
+
+  // collateral / execution
+  margin   Int // stored in smallest unit (cents)
+  leverage Int
+  slippage Int
+
+  // price fields (smallest unit)
+  entryPrice Int? // set when trade is filled/opened
+  closePrice Int? // set when closed
+  pnl        Int? // realized PnL in smallest unit
+
+  // order semantics
+  orderType   OrderType    @default(MARKET)
+  limitPrice  Int? // for LIMIT orders (smallest unit)
+  tradeTerm   TradeTerm?
+  timeInForce TimeInForce?
+  expiryAt    DateTime? // expiry timestamp
+
+  // stop/take specification (percent) and computed prices (smallest unit)
+  stopLossPercent   Float?
+  takeProfitPercent Float?
+  stopLossPrice     Int?
+  takeProfitPrice   Int?
+
+  status TradeStatus @default(OPEN)
+
+  createdAt DateTime  @default(now())
+  closedAt  DateTime?
+
+  @@index([userId])
+  @@index([asset, status])
+}
+
+model Holdings {
+  id       String @id @default(uuid())
+  userId   String
+  asset    String
+  quantity Decimal // or Int in smallest unit
+  user     User   @relation(fields: [userId], references: [id])
+
+  @@unique([userId, asset])
   @@index([userId])
 }
