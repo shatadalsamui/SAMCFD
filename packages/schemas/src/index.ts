@@ -2,48 +2,48 @@ import { z } from "zod"
 
 //SignupSchema
 export const SignupSchema = z.object({
-    email: z
-        .string()
-        .email("Invalid email address"),
+  email: z
+    .string()
+    .email("Invalid email address"),
 })
 
 //Signin schema
 export const SigninSchema = z.object({
-    email: z
-        .string()
-        .email("Invalid email address"),
-    password: z
-        .string()
-        .min(8, "Password must be at least 8 characters long")
-        .max(20, "Password must be at most 20 characters long")
-        .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,20}$/, "Password must include at least one uppercase letter, one lowercase letter, one digit, and one special character"),
+  email: z
+    .string()
+    .email("Invalid email address"),
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters long")
+    .max(20, "Password must be at most 20 characters long")
+    .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,20}$/, "Password must include at least one uppercase letter, one lowercase letter, one digit, and one special character"),
 })
 
 //verifyotp schema 
 export const VerifyOtpSchema = z.object({
-    email: z
-        .string()
-        .email("Invalid email address"),
-    otp: z
-        .string()
-        .length(6, "OTP must be 6 digits"),
-    password: z
-        .string()
-        .min(8, "Password must be atleast 8 characters long!")
-        .max(20, "Password must be at most 20 characters long")
-        .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,20}$/,
-            "Password must include at least one uppercase letter, one lowercase letter, one digit, and one special character"
-        ),
-    name: z
-        .string()
-        .min(2, "Name must be at least 3 characters long")
-        .max(50, "Name must be at most 50 characters long"),
+  email: z
+    .string()
+    .email("Invalid email address"),
+  otp: z
+    .string()
+    .length(6, "OTP must be 6 digits"),
+  password: z
+    .string()
+    .min(8, "Password must be atleast 8 characters long!")
+    .max(20, "Password must be at most 20 characters long")
+    .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,20}$/,
+      "Password must include at least one uppercase letter, one lowercase letter, one digit, and one special character"
+    ),
+  name: z
+    .string()
+    .min(2, "Name must be at least 3 characters long")
+    .max(50, "Name must be at most 50 characters long"),
 });
 
 export const PriceUpdateSchema = z.object({
-    asset: z.string(),
-    price: z.number(),
-    timestamp: z.number(),
+  asset: z.string(),
+  price: z.number(),
+  timestamp: z.number(),
 })
 
 export const createOrderSchema = z.object({
@@ -58,6 +58,7 @@ export const createOrderSchema = z.object({
   stopLossPercent: z.optional(z.number()),
   takeProfitPercent: z.optional(z.number()),
   tradeTerm: z.optional(z.enum(["INTRAHOUR", "INTRADAY", "WEEK", "MONTH", "YEAR"])),
+  quantity: z.optional(z.number().positive("Quantity must be a positive number")),
   timeInForce: z.optional(z.enum(["IOC", "FOK", "DAY", "GTC", "EXPIRE_AT"])),
   expiryTimestamp: z.optional(z.number().int().nonnegative("expiryTimestamp must be a non-negative integer")),
 }).superRefine((data, ctx) => {
@@ -105,6 +106,6 @@ export const createOrderSchema = z.object({
 });
 
 export const closeOrderSchema = z.object({
-    orderId: z.string().uuid("Invalid order ID"),  // Assuming UUID format
+  orderId: z.string().uuid("Invalid order ID"),  // Assuming UUID format
 });
 

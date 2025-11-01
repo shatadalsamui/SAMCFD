@@ -1,25 +1,37 @@
-// Import the state module and types module.
 mod kafka;
 mod state;
 mod types;
+mod processor;
+mod pnl;
+mod liquidations;
+mod stop_loss_take_profit;
+mod order_matching;
 
-use state::{shared_state, SharedEngineState};
+use kafka::consumer;
+use kafka::producer;
+use state::EngineState;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
-#[tokio::main] // Start the Tokio async runtime.
+#[tokio::main]
 async fn main() {
-    println!("Engine starting...");
+    let state = Arc::new(Mutex::new(EngineState::new()));
 
-    // Create the shared, thread-safe engine state.
-    let state: SharedEngineState = shared_state();
+    // Start the Kafka consumer
+    let consumer_state = state.clone();
+    tokio::spawn(async move {
+        if let Err(e) = consumer::start_consumer(consumer_state).await {
+            eprintln!("Error in Kafka consumer: {:?}", e);
+        }
+    });
 
-    // Here you will later spawn Kafka consumer tasks and pass `state.clone()` to each.
-    // Example:
-    tokio::spawn(kafka::consumer::start_consumer());
-    tokio::spawn(kafka::producer::start_producer());
+    // Start the Kafka producer
+    let producer_state = state.clone();
+    tokio::spawn(async move {
+        if let Err(e) = producer::start_producer(producer_state).await {
+            eprintln!("Error in Kafka producer: {:?}", e);
+        }
+    });
 
-    // For now, just keep the process alive (so the async runtime doesn't exit).
-    // Remove this later when you add real tasks.
-    loop {
-        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-    }
+    println!("Engine started successfully.");
 }

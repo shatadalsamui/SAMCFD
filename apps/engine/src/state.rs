@@ -1,36 +1,39 @@
-// Import standard library types for hash maps and atomic reference counting.
-use std::collections::HashMap;
+use std::collections::{HashMap, BTreeMap, VecDeque};
 use std::sync::Arc;
-
-// Import Tokio's async-aware Mutex for safe concurrent access.
 use tokio::sync::Mutex;
+use crate::types::{Order, Trade};
 
-// Import your Trade struct from types.rs (must declare `mod types;` in main.rs).
-use crate::types::Trade;
-
-/// EngineState holds all balances and open trades in memory.
-/// - balances: maps user_id (String) to amount (i64)
-/// - open_trades: maps trade_id (String) to Trade struct
-pub struct EngineState {
-    pub balances: HashMap<String, i64>,
-    pub open_trades: HashMap<String, Trade>,
+pub struct OrderBook {
+    pub buy: BTreeMap<i64, VecDeque<Order>>,  // price -> FIFO queue (highest price first)
+    pub sell: BTreeMap<i64, VecDeque<Order>>, // price -> FIFO queue (lowest price first)
 }
 
-impl EngineState {
-    /// Create a new, empty EngineState.
+impl OrderBook {
     pub fn new() -> Self {
         Self {
-            balances: HashMap::new(),
-            open_trades: HashMap::new(),
+            buy: BTreeMap::new(),
+            sell: BTreeMap::new(),
         }
     }
 }
 
-/// SharedEngineState is a thread-safe, async-safe pointer to EngineState.
-/// Use this type to share state between async tasks.
-pub type SharedEngineState = Arc<Mutex<EngineState>>;
-
-/// Helper to create a new shared state instance.
-pub fn shared_state() -> SharedEngineState {
-    Arc::new(Mutex::new(EngineState::new()))
+pub struct EngineState {
+    pub balances: HashMap<String, i64>, // user_id -> balance
+    pub open_trades: HashMap<String, Trade>, // order_id -> Trade
+    pub order_books: HashMap<String, OrderBook>, // asset -> order book
+    pub prices: HashMap<String, i64>, // asset -> price
 }
+
+impl EngineState {
+    pub fn new() -> Self {
+        Self {
+            balances: HashMap::new(),
+            open_trades: HashMap::new(),
+            order_books: HashMap::new(),
+            prices: HashMap::new(),
+        }
+    }
+}
+
+// Shared state type for concurrent access
+pub type SharedEngineState = Arc<Mutex<EngineState>>;

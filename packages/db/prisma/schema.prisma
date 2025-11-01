@@ -32,7 +32,6 @@ model Balance {
   userId String @unique
   user   User   @relation(fields: [userId], references: [id])
   amount Int //store in paisa ,cents the lowest possible unit 
-
 }
 
 enum Side {
@@ -83,6 +82,7 @@ model Trade {
   margin   Int // stored in smallest unit (cents)
   leverage Int
   slippage Int
+  quantity Int?
 
   // price fields (smallest unit)
   entryPrice Int? // set when trade is filled/opened
@@ -112,11 +112,11 @@ model Trade {
 }
 
 model Holdings {
-  id       String @id @default(uuid())
+  id       String  @id @default(uuid())
   userId   String
   asset    String
   quantity Decimal // or Int in smallest unit
-  user     User   @relation(fields: [userId], references: [id])
+  user     User    @relation(fields: [userId], references: [id])
 
   @@unique([userId, asset])
   @@index([userId])

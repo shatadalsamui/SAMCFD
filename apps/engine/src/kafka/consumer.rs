@@ -4,8 +4,11 @@ use rdkafka::message::Message;
 use std::time::Duration;
 use crate::types::CreateTradeRequest;
 use serde_json;
+use crate::state::SharedEngineState;
 
-pub async fn start_consumer() {
+pub async fn start_consumer(_state: SharedEngineState) -> Result<(), Box<dyn std::error::Error>> {
+    println!("Starting Kafka consumer...");
+
     // Configure the Kafka consumer
     let consumer: StreamConsumer = ClientConfig::new()
         .set("bootstrap.servers", "localhost:9092")
