@@ -1,7 +1,7 @@
 use std::collections::{HashMap, BTreeMap, VecDeque};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use crate::types::{Order, Trade};
+use crate::modules::types::{Order, Trade};
 
 pub struct OrderBook {
     pub buy: BTreeMap<i64, VecDeque<Order>>,  // price -> FIFO queue (highest price first)

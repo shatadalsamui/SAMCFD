@@ -1,6 +1,6 @@
-use crate::state::SharedEngineState;
-use crate::types::{Side, trade_to_order};
-use crate::pnl::calculate_pnl;
+use crate::modules::state::SharedEngineState;
+use crate::modules::types::{Side, trade_to_order};
+use crate::modules::pnl::calculate_pnl;
 
 pub async fn monitor_stop_loss_take_profit(state: SharedEngineState) {
     let mut engine_state = state.lock().await;

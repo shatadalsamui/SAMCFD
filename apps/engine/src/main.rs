@@ -1,15 +1,9 @@
 mod kafka;
-mod state;
-mod types;
-mod processor;
-mod pnl;
-mod liquidations;
-mod stop_loss_take_profit;
-mod order_matching;
+mod modules;
 
 use kafka::consumer;
 use kafka::producer;
-use state::EngineState;
+use modules::state::EngineState;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 

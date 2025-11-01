@@ -1,4 +1,4 @@
-use crate::types::Order;
+use crate::modules::types::Order;
 use std::collections::VecDeque;
 
 /// Match a market order with the opposite side of the order book

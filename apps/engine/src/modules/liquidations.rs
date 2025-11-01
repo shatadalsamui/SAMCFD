@@ -1,6 +1,6 @@
-use crate::pnl::calculate_pnl;
-use crate::state::EngineState;
-use crate::types::{trade_to_order, Order, Side};
+use crate::modules::pnl::calculate_pnl; // Updated import for pnl
+use crate::modules::state::EngineState; // Updated import for state
+use crate::modules::types::{trade_to_order, Order, Side}; // Updated import for types
 
 /// Check if liquidation is needed for a trade
 pub fn check_liquidation(

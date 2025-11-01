@@ -1,10 +1,10 @@
+use crate::modules::state::SharedEngineState;
+use crate::modules::types::CreateTradeRequest;
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::message::Message;
-use std::time::Duration;
-use crate::types::CreateTradeRequest;
 use serde_json;
-use crate::state::SharedEngineState;
+use std::time::Duration;
 
 pub async fn start_consumer(_state: SharedEngineState) -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting Kafka consumer...");
@@ -25,19 +25,17 @@ pub async fn start_consumer(_state: SharedEngineState) -> Result<(), Box<dyn std
 
     loop {
         match consumer.recv().await {
-            Ok(m) => {
-                match m.payload_view::<str>() {
-                    Some(Ok(payload)) => {
-                        handle_trade_create_request(payload);
-                    }
-                    Some(Err(e)) => {
-                        println!("Failed to decode message payload: {}", e);
-                    }
-                    None => {
-                        println!("Received message with empty payload");
-                    }
+            Ok(m) => match m.payload_view::<str>() {
+                Some(Ok(payload)) => {
+                    handle_trade_create_request(payload);
                 }
-            }
+                Some(Err(e)) => {
+                    println!("Failed to decode message payload: {}", e);
+                }
+                None => {
+                    println!("Received message with empty payload");
+                }
+            },
             Err(e) => {
                 println!("Kafka error: {}", e);
                 tokio::time::sleep(Duration::from_secs(1)).await;
