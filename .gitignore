@@ -36,8 +36,9 @@ out/
 build
 dist
 
-# Rust (engine microservice)
-apps/engine/target/
+
+# Rust build artifacts
+**/target/
 apps/engine/Cargo.lock
 
 
