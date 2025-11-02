@@ -1,6 +1,6 @@
 use crate::modules::types::Order;
-use std::collections::{VecDeque, BTreeMap};
 use ordered_float::OrderedFloat;
+use std::collections::{BTreeMap, HashMap, VecDeque};
 
 /// Match a market order with the opposite side of the order book
 pub fn match_market_order(
@@ -22,7 +22,10 @@ pub fn match_market_order(
 
             println!(
                 "Matched market order {} with limit order {} for {} units at price {}",
-                order.id, limit_order.id, match_quantity, price.0 // .0 to get f64
+                order.id,
+                limit_order.id,
+                match_quantity,
+                price.0 // .0 to get f64
             );
 
             if limit_order.filled < limit_order.quantity {
@@ -64,6 +67,8 @@ pub fn add_limit_order(
     limit_order: Order,
     same_side_book: &mut BTreeMap<OrderedFloat<f64>, VecDeque<Order>>,
     opposite_book: &mut BTreeMap<OrderedFloat<f64>, VecDeque<Order>>,
+    balances: &mut HashMap<String, f64>,
+    prices: &HashMap<String, f64>,
 ) {
     let matched_trades = match_market_order(limit_order.clone(), opposite_book);
 
@@ -84,6 +89,21 @@ pub fn add_limit_order(
             limit_order.id,
             remaining_quantity,
             remaining_order.price.unwrap()
+        );
+    } else {
+        // Limit order fully filled: calculate PnL and update balance
+        let close_price = matched_trades
+            .last()
+            .and_then(|t| t.price)
+            .or(limit_order.price)
+            .unwrap_or(0.0);
+        let pnl = crate::modules::pnl::calculate_pnl(&limit_order, &close_price);
+        if let Some(balance) = balances.get_mut(&limit_order.user_id) {
+            *balance += pnl;
+        }
+        println!(
+            "Limit order {} fully filled at price {}. PnL: {}",
+            limit_order.id, close_price, pnl
         );
     }
 }

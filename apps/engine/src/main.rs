@@ -6,7 +6,9 @@ use kafka::producer;
 use modules::state::EngineState;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tokio::time::Duration;
 use modules::price_updater::spawn_price_logger;
+use modules::stop_loss_take_profit::monitor_stop_loss_take_profit;
 
 #[tokio::main]
 async fn main() {
@@ -29,6 +31,15 @@ async fn main() {
     });
 
     spawn_price_logger(state.clone());
+
+    // Start stop-loss and take-profit monitoring
+    let stop_loss_state = state.clone();
+    tokio::spawn(async move {
+        loop {
+            monitor_stop_loss_take_profit(stop_loss_state.clone()).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    });
 
     println!("Engine started successfully.");
     tokio::signal::ctrl_c()
