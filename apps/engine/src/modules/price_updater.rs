@@ -14,7 +14,7 @@ pub fn spawn_price_logger(state: SharedEngineState) {
                     let price = engine_state.prices.get(asset).cloned().unwrap_or(-1.0);
                     prices.push(format!("{}: {}", asset, price));
                 }
-                println!("Prices => {}", prices.join(" | "));
+                //println!("Prices => {}", prices.join(" | "));
             }
             sleep(Duration::from_millis(100)).await;
         }
