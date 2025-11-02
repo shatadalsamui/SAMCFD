@@ -31,7 +31,7 @@ model Balance {
   id     String @id @default(uuid())
   userId String @unique
   user   User   @relation(fields: [userId], references: [id])
-  amount Int //store in paisa ,cents the lowest possible unit 
+  amount Decimal // store in dollars as decimal
 }
 
 enum Side {
@@ -79,19 +79,19 @@ model Trade {
   side Side
 
   // collateral / execution
-  margin   Int // stored in smallest unit (cents)
+  margin   Decimal // stored in dollars
   leverage Int
   slippage Int
-  quantity Int?
+  quantity Decimal?
 
   // price fields (smallest unit)
-  entryPrice Int? // set when trade is filled/opened
-  closePrice Int? // set when closed
-  pnl        Int? // realized PnL in smallest unit
+  entryPrice Decimal? // set when trade is filled/opened
+  closePrice Decimal? // set when closed
+  pnl        Decimal? // realized PnL in dollars
 
   // order semantics
   orderType   OrderType    @default(MARKET)
-  limitPrice  Int? // for LIMIT orders (smallest unit)
+  limitPrice  Decimal? // for LIMIT orders (dollars)
   tradeTerm   TradeTerm?
   timeInForce TimeInForce?
   expiryAt    DateTime? // expiry timestamp
@@ -99,8 +99,8 @@ model Trade {
   // stop/take specification (percent) and computed prices (smallest unit)
   stopLossPercent   Float?
   takeProfitPercent Float?
-  stopLossPrice     Int?
-  takeProfitPrice   Int?
+  stopLossPrice     Decimal?
+  takeProfitPrice   Decimal?
 
   status TradeStatus @default(OPEN)
 

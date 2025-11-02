@@ -48,10 +48,8 @@ export const createOrderController = async (req: Request, res: Response) => {
         );
 
         const balance = balanceResponse?.balance ?? 0;
-        const marginUnits = Math.round(margin * 100);
-        const limitPriceUnits = limitPrice != null ? Math.round(limitPrice * 100) : null;
-
-        if (balance < marginUnits) {
+        // No conversion to cents
+        if (balance < margin) {
             return res.status(400).json({ message: "Insufficient balance" });
         }
 
@@ -71,12 +69,12 @@ export const createOrderController = async (req: Request, res: Response) => {
                         orderId,
                         asset,
                         side,
-                        margin: marginUnits,
+                        margin: margin,
                         leverage,
                         quantity,
                         slippage,
                         orderType,
-                        limitPrice: limitPriceUnits,
+                        limitPrice: limitPrice,
                         stopLossPercent,
                         takeProfitPercent,
                         tradeTerm,
