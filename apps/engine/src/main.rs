@@ -6,6 +6,7 @@ use kafka::producer;
 use modules::state::EngineState;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use modules::price_updater::spawn_price_logger;
 
 #[tokio::main]
 async fn main() {
@@ -27,5 +28,11 @@ async fn main() {
         }
     });
 
+    spawn_price_logger(state.clone());
+
     println!("Engine started successfully.");
+    tokio::signal::ctrl_c()
+        .await
+        .expect("Failed to listen for ctrl_c");
+    println!("Shutting down engine.");
 }

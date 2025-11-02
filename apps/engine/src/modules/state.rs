@@ -1,11 +1,11 @@
-use std::collections::{HashMap, BTreeMap, VecDeque};
+use crate::modules::types::{Order, Trade};
+use ordered_float::OrderedFloat;
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use crate::modules::types::{Order, Trade};
-
 pub struct OrderBook {
-    pub buy: BTreeMap<i64, VecDeque<Order>>,  // price -> FIFO queue (highest price first)
-    pub sell: BTreeMap<i64, VecDeque<Order>>, // price -> FIFO queue (lowest price first)
+    pub buy: BTreeMap<OrderedFloat<f64>, VecDeque<Order>>,
+    pub sell: BTreeMap<OrderedFloat<f64>, VecDeque<Order>>,
 }
 
 impl OrderBook {
@@ -18,10 +18,10 @@ impl OrderBook {
 }
 
 pub struct EngineState {
-    pub balances: HashMap<String, i64>, // user_id -> balance
-    pub open_trades: HashMap<String, Trade>, // order_id -> Trade
+    pub balances: HashMap<String, f64>,          // user_id -> balance
+    pub open_trades: HashMap<String, Trade>,     // order_id -> Trade
     pub order_books: HashMap<String, OrderBook>, // asset -> order book
-    pub prices: HashMap<String, i64>, // asset -> price
+    pub prices: HashMap<String, f64>,            // asset -> price
 }
 
 impl EngineState {

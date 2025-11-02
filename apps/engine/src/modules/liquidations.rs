@@ -4,11 +4,11 @@ use crate::modules::types::{trade_to_order, Order, Side}; // Updated import for 
 
 /// Check if liquidation is needed for a trade
 pub fn check_liquidation(
-    entry_price: i64,
-    latest_price: i64,
-    quantity: i64,
-    margin_used: i64,
-    maintenance_margin_percent: i64,
+    entry_price: f64,
+    latest_price: f64,
+    quantity: f64,
+    margin_used: f64,
+    maintenance_margin_percent: f64,
 ) -> bool {
     // Calculate unrealized PnL
     let unrealized_pnl = match entry_price < latest_price {
@@ -20,7 +20,7 @@ pub fn check_liquidation(
     let current_margin = margin_used + unrealized_pnl;
 
     // Calculate maintenance margin
-    let maintenance_margin = (margin_used * maintenance_margin_percent) / 100;
+    let maintenance_margin = (margin_used * maintenance_margin_percent) / 100.0;
 
     // Return true if liquidation is needed
     current_margin < maintenance_margin
@@ -30,8 +30,8 @@ pub fn check_liquidation(
 pub fn liquidate_trade(
     state: &mut EngineState,
     order_id: &str,
-    latest_price: i64,
-    maintenance_margin_percent: i64,
+    latest_price: f64,
+    maintenance_margin_percent: f64,
 ) {
     if let Some(trade) = state.open_trades.remove(order_id) {
         let order = trade_to_order(&trade);

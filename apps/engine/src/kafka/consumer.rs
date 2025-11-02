@@ -1,3 +1,4 @@
+use crate::modules::price_updater::handle_price_update;
 use crate::modules::state::SharedEngineState;
 use crate::modules::types::CreateTradeRequest;
 use rdkafka::config::ClientConfig;
@@ -6,7 +7,7 @@ use rdkafka::message::Message;
 use serde_json;
 use std::time::Duration;
 
-pub async fn start_consumer(_state: SharedEngineState) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn start_consumer(state: SharedEngineState) -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting Kafka consumer...");
 
     // Configure the Kafka consumer
@@ -18,7 +19,7 @@ pub async fn start_consumer(_state: SharedEngineState) -> Result<(), Box<dyn std
         .expect("Consumer creation failed");
 
     consumer
-        .subscribe(&["trade-create-request"])
+        .subscribe(&["trade-create-request", "price-updates"])
         .expect("Can't subscribe");
 
     println!("Kafka consumer started, waiting for messages...");
@@ -27,7 +28,12 @@ pub async fn start_consumer(_state: SharedEngineState) -> Result<(), Box<dyn std
         match consumer.recv().await {
             Ok(m) => match m.payload_view::<str>() {
                 Some(Ok(payload)) => {
-                    handle_trade_create_request(payload);
+                    // Handle messages based on the topic
+                    match m.topic() {
+                        "trade-create-request" => handle_trade_create_request(payload),
+                        "price-updates" => handle_price_update(payload, state.clone()).await,
+                        _ => {}
+                    }
                 }
                 Some(Err(e)) => {
                     println!("Failed to decode message payload: {}", e);

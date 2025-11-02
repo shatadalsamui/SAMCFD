@@ -45,11 +45,11 @@ pub struct CreateTradeRequest {
     pub order_id: String,
     pub asset: String,
     pub side: Side,  // "buy" | "sell"
-    pub margin: i64, // smallest unit (cents)
-    pub leverage: i32,
-    pub slippage: Option<i32>,
+    pub margin: f64, // smallest unit (cents)
+    pub leverage: f64,
+    pub slippage: Option<f64>,
     pub order_type: Option<OrderType>, // "market" | "limit"
-    pub limit_price: Option<i64>,      // smallest unit
+    pub limit_price: Option<f64>,      // smallest unit
     pub stop_loss_percent: Option<f64>,
     pub take_profit_percent: Option<f64>,
     pub trade_term: Option<String>,
@@ -67,12 +67,12 @@ pub struct Order {
     pub asset: String,
     pub side: Side,
     pub order_type: OrderType,
-    pub price: Option<i64>, // limit price (None for market)
-    pub quantity: i64,
-    pub filled: i64,
+    pub price: Option<f64>, // limit price (None for market)
+    pub quantity: f64,
+    pub filled: f64,
     pub status: OrderStatus,
-    pub margin: i64,
-    pub leverage: i32,
+    pub margin: f64,
+    pub leverage: f64,
     pub stop_loss_percent: Option<f64>,
     pub take_profit_percent: Option<f64>,
     pub created_at: i64,
@@ -83,7 +83,7 @@ pub struct Order {
 #[serde(rename_all = "camelCase")]
 pub struct PriceUpdate {
     pub asset: String,
-    pub price: i64, // smallest unit
+    pub price: f64, // smallest unit
     pub timestamp: i64,
 }
 
@@ -94,18 +94,18 @@ pub struct Trade {
     pub user_id: String,
     pub asset: String,
     pub side: Side,
-    pub margin: i64,
-    pub leverage: i32,
-    pub quantity: i64,
-    pub entry_price: Option<i64>,
-    pub close_price: Option<i64>,
-    pub pnl: Option<i64>,
+    pub margin: f64,
+    pub leverage: f64,
+    pub quantity: f64,
+    pub entry_price: Option<f64>,
+    pub close_price: Option<f64>,
+    pub pnl: Option<f64>,
     pub status: Option<String>,
     pub created_at: Option<i64>,
     pub closed_at: Option<i64>,
     pub take_profit_percent: Option<f64>,
     pub stop_loss_percent: Option<f64>,
-    pub price: Option<i64>,
+    pub price: Option<f64>,
 }
 
 pub fn order_to_trade(order: &Order) -> Trade {
@@ -138,7 +138,7 @@ pub fn trade_to_order(trade: &Trade) -> Order {
         order_type: OrderType::Market, // Defaulting to Market
         price: trade.price,
         quantity: trade.quantity,
-        filled: 0, // Assuming not relevant when converting back for PnL
+        filled: 0.0, // Assuming not relevant when converting back for PnL
         status: OrderStatus::Open, // Assuming a default status
         margin: trade.margin,
         leverage: trade.leverage,
@@ -156,7 +156,7 @@ pub struct TradeOutcome {
     pub user_id: String,
     pub success: bool,
     pub reason: Option<String>,
-    pub pnl: Option<i64>,
+    pub pnl: Option<f64>,
     pub status: Option<String>,
 }
 

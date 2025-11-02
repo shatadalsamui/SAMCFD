@@ -13,7 +13,7 @@ pub async fn monitor_stop_loss_take_profit(state: SharedEngineState) {
                 Side::Buy => {
                     // Check take profit
                     if let Some(tp) = trade.take_profit_percent {
-                        let take_profit_price = trade.price.unwrap() + (trade.price.unwrap() * tp as i64 / 100);
+                        let take_profit_price = trade.price.unwrap() + (trade.price.unwrap() * tp as f64 / 100.0);
                         if *latest_price >= take_profit_price {
                             println!("Take profit triggered for order {}", order_id);
                             to_close.push(order_id.clone());
@@ -23,7 +23,7 @@ pub async fn monitor_stop_loss_take_profit(state: SharedEngineState) {
 
                     // Check stop loss
                     if let Some(sl) = trade.stop_loss_percent {
-                        let stop_loss_price = trade.price.unwrap() - (trade.price.unwrap() * sl as i64 / 100);
+                        let stop_loss_price = trade.price.unwrap() - (trade.price.unwrap() * sl as f64 / 100.0);
                         if *latest_price <= stop_loss_price {
                             println!("Stop loss triggered for order {}", order_id);
                             to_close.push(order_id.clone());
@@ -34,7 +34,7 @@ pub async fn monitor_stop_loss_take_profit(state: SharedEngineState) {
                 Side::Sell => {
                     // Check take profit
                     if let Some(tp) = trade.take_profit_percent {
-                        let take_profit_price = trade.price.unwrap() - (trade.price.unwrap() * tp as i64 / 100);
+                        let take_profit_price = trade.price.unwrap() - (trade.price.unwrap() * tp as f64 / 100.0);
                         if *latest_price <= take_profit_price {
                             println!("Take profit triggered for order {}", order_id);
                             to_close.push(order_id.clone());
@@ -44,7 +44,7 @@ pub async fn monitor_stop_loss_take_profit(state: SharedEngineState) {
 
                     // Check stop loss
                     if let Some(sl) = trade.stop_loss_percent {
-                        let stop_loss_price = trade.price.unwrap() + (trade.price.unwrap() * sl as i64 / 100);
+                        let stop_loss_price = trade.price.unwrap() + (trade.price.unwrap() * sl as f64 / 100.0);
                         if *latest_price >= stop_loss_price {
                             println!("Stop loss triggered for order {}", order_id);
                             to_close.push(order_id.clone());
