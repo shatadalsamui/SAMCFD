@@ -64,46 +64,31 @@ pub fn match_market_order(
 
 /// Add a limit order to the appropriate side of the order book
 pub fn add_limit_order(
-    limit_order: Order,
-    same_side_book: &mut BTreeMap<OrderedFloat<f64>, VecDeque<Order>>,
+    order: &mut Order,
     opposite_book: &mut BTreeMap<OrderedFloat<f64>, VecDeque<Order>>,
-    balances: &mut HashMap<String, f64>,
-    _prices: &HashMap<String, f64>,
-) {
-    let matched_trades = match_market_order(limit_order.clone(), opposite_book);
+) -> (f64, f64) {
+    let matched_trades = match_market_order(order.clone(), opposite_book);
 
-    let filled_quantity: f64 = matched_trades.iter().map(|trade| trade.quantity).sum();
-    let remaining_quantity = limit_order.quantity - filled_quantity;
+    let filled: f64 = matched_trades.iter().map(|trade| trade.quantity).sum();
+    let total_cost: f64 = matched_trades.iter().map(|trade| trade.price.unwrap_or(0.0) * trade.quantity).sum();
+    let close_price = if filled > 0.0 { total_cost / filled } else { 0.0 };
+
+    // Update the original order's filled quantity
+    order.filled = filled;
+
+    let remaining_quantity = order.quantity - filled;
 
     if remaining_quantity > 0.0 {
-        let mut remaining_order = limit_order.clone();
-        remaining_order.quantity = remaining_quantity;
-
-        let price_level = same_side_book
-            .entry(OrderedFloat(remaining_order.price.unwrap()))
-            .or_insert(VecDeque::new());
-        price_level.push_back(remaining_order.clone());
-
         println!(
-            "Added remaining limit order {} to the book with {} units at price {}",
-            limit_order.id,
-            remaining_quantity,
-            remaining_order.price.unwrap()
+            "Limit order {} partially filled: {} units at avg price {}. Remaining: {}",
+            order.id, filled, close_price, remaining_quantity
         );
     } else {
-        // Limit order fully filled: calculate PnL and update balance
-        let close_price = matched_trades
-            .last()
-            .and_then(|t| t.price)
-            .or(limit_order.price)
-            .unwrap_or(0.0);
-        let pnl = crate::modules::pnl::calculate_pnl(&limit_order, &close_price);
-        if let Some(balance) = balances.get_mut(&limit_order.user_id) {
-            *balance += pnl;
-        }
         println!(
-            "Limit order {} fully filled at price {}. PnL: {}",
-            limit_order.id, close_price, pnl
+            "Limit order {} fully filled: {} units at avg price {}",
+            order.id, filled, close_price
         );
     }
+
+    (filled, close_price)
 }

@@ -9,12 +9,13 @@ pub async fn monitor_stop_loss_take_profit(state: SharedEngineState) {
     let mut to_close = Vec::new(); // Track trades to close
     for (order_id, trade) in engine_state.open_trades.iter() {
         if let Some(latest_price) = engine_state.prices.get(&trade.asset) {
+            // Use entry_price as trade.price or fallback to latest_price
+            let entry_price = trade.price.unwrap_or(*latest_price);
             match trade.side {
                 Side::Buy => {
                     // Check take profit
                     if let Some(tp) = trade.take_profit_percent {
-                        let take_profit_price =
-                            trade.price.unwrap() + (trade.price.unwrap() * tp as f64 / 100.0);
+                        let take_profit_price = entry_price + (entry_price * tp as f64 / 100.0);
                         if *latest_price >= take_profit_price {
                             println!("Take profit triggered for order {}", order_id);
                             to_close.push(order_id.clone());
@@ -24,8 +25,7 @@ pub async fn monitor_stop_loss_take_profit(state: SharedEngineState) {
 
                     // Check stop loss
                     if let Some(sl) = trade.stop_loss_percent {
-                        let stop_loss_price =
-                            trade.price.unwrap() - (trade.price.unwrap() * sl as f64 / 100.0);
+                        let stop_loss_price = entry_price - (entry_price * sl as f64 / 100.0);
                         if *latest_price <= stop_loss_price {
                             println!("Stop loss triggered for order {}", order_id);
                             to_close.push(order_id.clone());
@@ -36,8 +36,7 @@ pub async fn monitor_stop_loss_take_profit(state: SharedEngineState) {
                 Side::Sell => {
                     // Check take profit
                     if let Some(tp) = trade.take_profit_percent {
-                        let take_profit_price =
-                            trade.price.unwrap() - (trade.price.unwrap() * tp as f64 / 100.0);
+                        let take_profit_price = entry_price - (entry_price * tp as f64 / 100.0);
                         if *latest_price <= take_profit_price {
                             println!("Take profit triggered for order {}", order_id);
                             to_close.push(order_id.clone());
@@ -47,8 +46,7 @@ pub async fn monitor_stop_loss_take_profit(state: SharedEngineState) {
 
                     // Check stop loss
                     if let Some(sl) = trade.stop_loss_percent {
-                        let stop_loss_price =
-                            trade.price.unwrap() + (trade.price.unwrap() * sl as f64 / 100.0);
+                        let stop_loss_price = entry_price + (entry_price * sl as f64 / 100.0);
                         if *latest_price >= stop_loss_price {
                             println!("Stop loss triggered for order {}", order_id);
                             to_close.push(order_id.clone());

@@ -5,6 +5,7 @@ use crate::modules::state::SharedEngineState;
 use crate::modules::types::{
     order_to_trade, CreateTradeRequest, Order, OrderStatus, OrderType, Side,
 };
+use std::collections::VecDeque;
 
 pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequest) {
     let mut engine_state = state.lock().await;
@@ -43,8 +44,13 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
         expiry: req.expiry_timestamp,
     };
 
+    let latest_price = engine_state
+        .prices
+        .get(&order.asset)
+        .cloned()
+        .unwrap_or(order.price.unwrap_or(0.0));
+    
     // Check for liquidation
-    let latest_price = order.price.unwrap_or(0.0); // Replace with actual price logic
     if check_liquidation(
         order.price.unwrap_or(0.0),
         latest_price,
@@ -96,14 +102,34 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
             }
             OrderType::Limit => {
                 if order.filled < order.quantity {
-                    add_limit_order(
-                        order.clone(),
-                        &mut order_book.buy,
-                        &mut order_book.sell,
-                        &mut engine_state.balances,
-                        &prices_snapshot,
-                    );
-                    println!("Added Buy limit order: {:?}", order);
+                    let (filled, close_price) = add_limit_order(&mut order, &mut order_book.sell);
+                    if filled > 0.0 {
+                        if filled == order.quantity {
+                            order.price = Some(close_price);
+                            order.status = OrderStatus::Filled;
+                        } else {
+                            order.status = OrderStatus::PartiallyFilled;
+                        }
+                        let pnl = crate::modules::pnl::calculate_pnl(&order, &close_price);
+                        if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
+                            *balance -= pnl;
+                        }
+                        println!(
+                            "Matched Buy limit order: {} filled {} at avg price {}",
+                            order.id, filled, close_price
+                        );
+                    }
+                    if order.filled < order.quantity {
+                        let mut remaining_order = order.clone();
+                        remaining_order.quantity = order.quantity - order.filled;
+                        remaining_order.filled = 0.0;
+                        let price_level = order_book
+                            .buy
+                            .entry(ordered_float::OrderedFloat(order.price.unwrap()))
+                            .or_insert(VecDeque::new());
+                        price_level.push_back(remaining_order);
+                        println!("Added Buy limit order to book: {:?}", order.id);
+                    }
                 }
             }
         },
@@ -138,14 +164,34 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
             }
             OrderType::Limit => {
                 if order.filled < order.quantity {
-                    add_limit_order(
-                        order.clone(),
-                        &mut order_book.sell,
-                        &mut order_book.buy,
-                        &mut engine_state.balances,
-                        &prices_snapshot,
-                    );
-                    println!("Added Sell limit order: {:?}", order);
+                    let (filled, close_price) = add_limit_order(&mut order, &mut order_book.buy);
+                    if filled > 0.0 {
+                        if filled == order.quantity {
+                            order.price = Some(close_price);
+                            order.status = OrderStatus::Filled;
+                        } else {
+                            order.status = OrderStatus::PartiallyFilled;
+                        }
+                        let pnl = crate::modules::pnl::calculate_pnl(&order, &close_price);
+                        if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
+                            *balance += pnl;
+                        }
+                        println!(
+                            "Matched Sell limit order: {} filled {} at avg price {}",
+                            order.id, filled, close_price
+                        );
+                    }
+                    if order.filled < order.quantity {
+                        let mut remaining_order = order.clone();
+                        remaining_order.quantity = order.quantity - order.filled;
+                        remaining_order.filled = 0.0;
+                        let price_level = order_book
+                            .sell
+                            .entry(ordered_float::OrderedFloat(order.price.unwrap()))
+                            .or_insert(VecDeque::new());
+                        price_level.push_back(remaining_order);
+                        println!("Added Sell limit order to book: {:?}", order.id);
+                    }
                 }
             }
         },
