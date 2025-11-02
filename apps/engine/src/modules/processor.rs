@@ -84,6 +84,7 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
                 }
                 if order.status == OrderStatus::Filled {
                     let close_price = matched_trades.last().and_then(|t| t.price).unwrap_or(0.0);
+                    order.price = Some(close_price);
                     let pnl = crate::modules::pnl::calculate_pnl(&order, &close_price);
                     if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
                         *balance += pnl;
@@ -125,6 +126,7 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
                 }
                 if order.status == OrderStatus::Filled {
                     let close_price = matched_trades.last().and_then(|t| t.price).unwrap_or(0.0);
+                    order.price = Some(close_price);
                     let pnl = crate::modules::pnl::calculate_pnl(&order, &close_price);
                     if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
                         *balance += pnl;
