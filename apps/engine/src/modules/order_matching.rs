@@ -68,7 +68,7 @@ pub fn add_limit_order(
     same_side_book: &mut BTreeMap<OrderedFloat<f64>, VecDeque<Order>>,
     opposite_book: &mut BTreeMap<OrderedFloat<f64>, VecDeque<Order>>,
     balances: &mut HashMap<String, f64>,
-    prices: &HashMap<String, f64>,
+    _prices: &HashMap<String, f64>,
 ) {
     let matched_trades = match_market_order(limit_order.clone(), opposite_book);
 

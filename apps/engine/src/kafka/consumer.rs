@@ -1,59 +1,77 @@
 use crate::modules::price_updater::handle_price_update;
+use crate::modules::processor::process_trade_create;
 use crate::modules::state::SharedEngineState;
 use crate::modules::types::CreateTradeRequest;
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::message::Message;
 use serde_json;
-use std::time::Duration;
 
-pub async fn start_consumer(state: SharedEngineState) -> Result<(), Box<dyn std::error::Error>> {
-    println!("Starting Kafka consumer...");
+/// Consumer for fast trade requests (subscribed only to "trade-create-request")
+pub async fn consume_trade_requests(state: SharedEngineState) -> Result<(), Box<dyn std::error::Error>> {
+    println!("Starting Trade Request Consumer...");
 
-    // Configure the Kafka consumer
     let consumer: StreamConsumer = ClientConfig::new()
+        .set("group.id", "engine-trade-group")
         .set("bootstrap.servers", "localhost:9092")
-        .set("group.id", "engine-group")
         .set("auto.offset.reset", "earliest")
         .create()
-        .expect("Consumer creation failed");
+        .expect("Trade Consumer creation failed");
 
-    consumer
-        .subscribe(&["trade-create-request", "price-updates"])
-        .expect("Can't subscribe");
+    consumer.subscribe(&["trade-create-request"]).expect("Can't subscribe to trade-create-request");
 
-    println!("Kafka consumer started, waiting for messages...");
+    println!("Trade Request Consumer started, waiting for messages...");
 
     loop {
         match consumer.recv().await {
-            Ok(m) => match m.payload_view::<str>() {
-                Some(Ok(payload)) => {
-                    // Handle messages based on the topic
-                    match m.topic() {
-                        "trade-create-request" => handle_trade_create_request(payload),
-                        "price-updates" => handle_price_update(payload, state.clone()).await,
-                        _ => {}
+            Ok(message) => {
+                if let Some(Ok(payload)) = message.payload_view::<str>() {  // Unwrap the Result
+                    match serde_json::from_str::<CreateTradeRequest>(payload) {
+                        Ok(req) => {
+                            println!("Received trade create request: {:?}", req);
+                            let state_clone = state.clone();
+                            tokio::spawn(async move {
+                                process_trade_create(state_clone, req).await;  // Remove if let Err, as it returns ()
+                            });
+                        }
+                        Err(e) => {
+                            println!("Failed to parse trade create request: {}", e);
+                        }
                     }
                 }
-                Some(Err(e)) => {
-                    println!("Failed to decode message payload: {}", e);
-                }
-                None => {
-                    println!("Received message with empty payload");
-                }
-            },
+            }
             Err(e) => {
-                println!("Kafka error: {}", e);
-                tokio::time::sleep(Duration::from_secs(1)).await;
+                println!("Error receiving trade message: {}", e);
             }
         }
     }
 }
 
-// Separate handler function for trade create requests
-fn handle_trade_create_request(payload: &str) {
-    match serde_json::from_str::<CreateTradeRequest>(payload) {
-        Ok(req) => println!("Parsed CreateTradeRequest: {:?}", req),
-        Err(e) => println!("Failed to parse CreateTradeRequest: {}", e),
+/// Consumer for slow price updates (subscribed only to "price-updates")
+pub async fn consume_price_updates(state: SharedEngineState) -> Result<(), Box<dyn std::error::Error>> {
+    println!("Starting Price Update Consumer...");
+
+    let consumer: StreamConsumer = ClientConfig::new()
+        .set("group.id", "engine-price-group")
+        .set("bootstrap.servers", "localhost:9092")
+        .set("auto.offset.reset", "earliest")
+        .create()
+        .expect("Price Consumer creation failed");
+
+    consumer.subscribe(&["price-updates"]).expect("Can't subscribe to price-updates");
+
+    println!("Price Update Consumer started, waiting for messages...");
+
+    loop {
+        match consumer.recv().await {
+            Ok(message) => {
+                if let Some(Ok(payload)) = message.payload_view::<str>() {  // Unwrap the Result
+                    handle_price_update(payload, state.clone()).await;
+                }
+            }
+            Err(e) => {
+                println!("Error receiving price message: {}", e);
+            }
+        }
     }
 }

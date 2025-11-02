@@ -25,7 +25,7 @@ pub fn liquidate_trade(
     latest_price: f64,
 ) {
     if let Some(trade) = state.open_trades.remove(order_id) {
-        let order = trade_to_order(&trade);
+        let order:Order = trade_to_order(&trade);
         let pnl = calculate_pnl(&order, &latest_price);
 
         if let Some(user_balance) = state.balances.get_mut(&order.user_id) {

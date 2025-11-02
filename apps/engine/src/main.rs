@@ -1,7 +1,7 @@
 mod kafka;
 mod modules;
 
-use kafka::consumer;
+use kafka::consumer::{consume_trade_requests, consume_price_updates};  // Updated import for separate consumers
 use kafka::producer;
 use modules::state::EngineState;
 use std::sync::Arc;
@@ -14,11 +14,19 @@ use modules::stop_loss_take_profit::monitor_stop_loss_take_profit;
 async fn main() {
     let state = Arc::new(Mutex::new(EngineState::new()));
 
-    // Start the Kafka consumer
-    let consumer_state = state.clone();
+    // Spawn Trade Request Consumer (fast jobs)
+    let trade_state = state.clone();
     tokio::spawn(async move {
-        if let Err(e) = consumer::start_consumer(consumer_state).await {
-            eprintln!("Error in Kafka consumer: {:?}", e);
+        if let Err(e) = consume_trade_requests(trade_state).await {
+            eprintln!("Error in Trade Request Consumer: {:?}", e);
+        }
+    });
+
+    // Spawn Price Update Consumer (slow jobs)
+    let price_state = state.clone();
+    tokio::spawn(async move {
+        if let Err(e) = consume_price_updates(price_state).await {
+            eprintln!("Error in Price Update Consumer: {:?}", e);
         }
     });
 
@@ -41,7 +49,7 @@ async fn main() {
         }
     });
 
-    println!("Engine started successfully.");
+    println!("Concurrent Engine started successfully with separate consumers.");
     tokio::signal::ctrl_c()
         .await
         .expect("Failed to listen for ctrl_c");

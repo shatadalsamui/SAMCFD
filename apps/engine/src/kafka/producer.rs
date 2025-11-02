@@ -16,7 +16,6 @@ pub async fn start_producer(_state: SharedEngineState) -> Result<(), Box<dyn std
             .payload("payload");
 
         match producer.send(record, Duration::from_secs(0)).await {
-            ///Ok(delivery) => println!("Produced message: {:?}", delivery),
             Ok(_delivery) => {}
             Err((e, _)) => println!("Failed to produce message: {}", e),
         }
