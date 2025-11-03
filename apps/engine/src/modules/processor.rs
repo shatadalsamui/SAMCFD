@@ -1,3 +1,4 @@
+use crate::kafka::producer;
 use crate::modules::liquidations::{check_liquidation, liquidate_trade};
 use crate::modules::order_matching::{add_limit_order, match_market_order};
 use crate::modules::state::OrderBook;
@@ -11,18 +12,28 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
     let mut engine_state = state.lock().await;
 
     // Validate user balance and deduct margin in its own scope
-    {
-        let balance = engine_state.balances.get_mut(&req.user_id);
-        if let Some(balance) = balance {
-            if *balance < req.margin {
-                println!("Insufficient balance for user: {}", req.user_id);
-                return;
-            }
-            *balance -= req.margin;
-        } else {
-            println!("No balance found for user: {}", req.user_id);
+    let balance = engine_state.balances.get_mut(&req.user_id);
+    if let Some(balance) = balance {
+        if *balance < req.margin {
+            println!("Insufficient balance for user: {}", req.user_id);
             return;
         }
+        *balance -= req.margin;
+    } else {
+        println!(
+            "No balance found for user: {}. Requesting balance...",
+            req.user_id
+        );
+        if let Err(e) = producer::send_balance_request(&req.user_id).await {
+            eprintln!("Failed to send balance request: {:?}", e);
+        }
+        // Store the pending trade
+        engine_state
+            .pending_trades
+            .entry(req.user_id.clone())
+            .or_default()
+            .push(req);
+        return;
     }
 
     // Create the order
@@ -49,7 +60,7 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
         .get(&order.asset)
         .cloned()
         .unwrap_or(order.price.unwrap_or(0.0));
-    
+
     // Check for liquidation
     if check_liquidation(
         order.price.unwrap_or(0.0),
@@ -203,4 +214,9 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
     engine_state
         .open_trades
         .insert(order.id.clone(), order_to_trade(&order));
+
+    println!(
+        "Trade created and added to open trades: user={}, order={}, status={:?}",
+        order.user_id, order.id, order.status
+    );
 }

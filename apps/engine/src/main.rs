@@ -1,14 +1,14 @@
 mod kafka;
 mod modules;
 
-use kafka::consumer::{consume_trade_requests, consume_price_updates};  // Updated import for separate consumers
+use kafka::consumer::{consume_balance_responses, consume_price_updates, consume_trade_requests};
 use kafka::producer;
+use modules::price_updater::spawn_price_logger;
 use modules::state::EngineState;
+use modules::stop_loss_take_profit::monitor_stop_loss_take_profit;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::Duration;
-use modules::price_updater::spawn_price_logger;
-use modules::stop_loss_take_profit::monitor_stop_loss_take_profit;
 
 #[tokio::main]
 async fn main() {
@@ -30,11 +30,11 @@ async fn main() {
         }
     });
 
-    // Start the Kafka producer
-    let producer_state = state.clone();
+    // Spawn Balance Response Consumer
+    let balance_state = state.clone();
     tokio::spawn(async move {
-        if let Err(e) = producer::start_producer(producer_state).await {
-            eprintln!("Error in Kafka producer: {:?}", e);
+        if let Err(e) = consume_balance_responses(balance_state).await {
+            eprintln!("Error in Balance Response Consumer: {:?}", e);
         }
     });
 

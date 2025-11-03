@@ -1,4 +1,4 @@
-use crate::modules::types::{Order, Trade};
+use crate::modules::types::{CreateTradeRequest, Order, Trade};
 use ordered_float::OrderedFloat;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::Arc;
@@ -22,6 +22,7 @@ pub struct EngineState {
     pub open_trades: HashMap<String, Trade>,     // order_id -> Trade
     pub order_books: HashMap<String, OrderBook>, // asset -> order book
     pub prices: HashMap<String, f64>,            // asset -> price
+    pub pending_trades: HashMap<String, Vec<CreateTradeRequest>>, // user_id -> trades
 }
 
 impl EngineState {
@@ -31,6 +32,7 @@ impl EngineState {
             open_trades: HashMap::new(),
             order_books: HashMap::new(),
             prices: HashMap::new(),
+            pending_trades: HashMap::new(), // <-- add this line
         }
     }
 }
