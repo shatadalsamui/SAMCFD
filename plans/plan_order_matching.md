@@ -1,3 +1,68 @@
+  **User assignment:**
+  - 1st payload (buy limit): send from **User A** (e.g., shatadalsamuimain)
+  - 2nd payload (sell market): send from **User B** (e.g., shatadalsamui82)
+  - 3rd payload (buy limit): send from **User B** (e.g., shatadalsamui82)
+  - 4th payload (sell market): send from **User A** (e.g., shatadalsamuimain)
+
+---
+
+- [ ] Full open/close cycle (for realized PnL test)
+  **Payloads:**
+  
+  ```json
+  {
+    "margin": 50.0,
+    "asset": "BTC_USDC",
+    "side": "buy",
+    "leverage": 1,
+    "quantity": 1.0,
+    "orderType": "limit",
+    "limitPrice": 105000,
+    "slippage": 0
+  }
+  ```
+  
+  ```json
+  {
+    "margin": 50.0,
+    "asset": "BTC_USDC",
+    "side": "sell",
+    "leverage": 1,
+    "quantity": 1.0,
+    "orderType": "market",
+    "slippage": 0
+  }
+  ```
+  
+  ```json
+  {
+    "margin": 50.0,
+    "asset": "BTC_USDC",
+    "side": "buy",
+    "leverage": 1,
+    "quantity": 1.0,
+    "orderType": "limit",
+    "limitPrice": 105000,
+    "slippage": 0
+  }
+  ```
+  
+  ```json
+  {
+    "margin": 50.0,
+    "asset": "BTC_USDC",
+    "side": "sell",
+    "leverage": 1,
+    "quantity": 1.0,
+    "orderType": "market",
+    "slippage": 0
+  }
+  ```
+
+  **Result:**
+  - Use these four payloads in order (buy limit, sell market, buy limit, sell market) to guarantee a full open/close cycle and trigger realized PnL logging.
+  - Assign the first and last order to one user, and the second and third to another user.
+  - This scenario is for verifying PnL calculation and log output after a position is closed at a different price.
 # Order Matching Test Plan
 
 ## ✅ To-Do List for Order Matching Engine

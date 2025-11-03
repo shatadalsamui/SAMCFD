@@ -1,6 +1,6 @@
 use crate::modules::pnl::calculate_pnl; // Updated import for pnl
 use crate::modules::state::EngineState; // Updated import for state
-use crate::modules::types::{trade_to_order, Order}; // Updated import for types
+
 
 /// Check if liquidation is needed for a trade
 pub fn check_liquidation(
@@ -24,11 +24,12 @@ pub fn liquidate_trade(
     order_id: &str,
     latest_price: f64,
 ) {
-    if let Some(trade) = state.open_trades.remove(order_id) {
-        let order:Order = trade_to_order(&trade);
-        let pnl = calculate_pnl(&order, &latest_price);
+    if let Some(mut trade) = state.open_trades.remove(order_id) {
+        // Set close_price for accurate PnL
+        trade.close_price = Some(latest_price);
+        let pnl = calculate_pnl(&trade);
 
-        if let Some(user_balance) = state.balances.get_mut(&order.user_id) {
+        if let Some(user_balance) = state.balances.get_mut(&trade.user_id) {
             *user_balance += pnl;
             println!(
                 "Liquidated order {} at price {} with PnL: {}. Updated balance: {}",

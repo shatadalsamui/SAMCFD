@@ -102,11 +102,48 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
                 if order.status == OrderStatus::Filled {
                     let close_price = matched_trades.last().and_then(|t| t.price).unwrap_or(0.0);
                     order.price = Some(close_price);
-                    let pnl = crate::modules::pnl::calculate_pnl(&order, &close_price);
-                    if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
-                        *balance += pnl;
+                    
+                    // Check if user has an open SELL position to close
+                    let existing_position_data = engine_state.open_trades.iter()
+                        .find(|(_, trade)| {
+                            trade.user_id == order.user_id 
+                            && trade.asset == order.asset 
+                            && matches!(trade.side, Side::Sell)
+                        })
+                        .map(|(id, trade)| (id.clone(), trade.entry_price.unwrap_or(0.0)));
+                    
+                    if let Some((existing_id, entry_price)) = existing_position_data {
+                        // Closing an existing SELL position
+                        let pnl = (entry_price - close_price) * order.quantity * order.leverage;
+                        
+                        if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
+                            *balance += pnl;
+                        }
+                        println!("Order {} filled. Closing short position. Entry: {}, Close: {}, PnL: {}", 
+                            order.id, entry_price, close_price, pnl);
+                        
+                        // Remove the closed position
+                        engine_state.open_trades.remove(&existing_id);
+                        
+                        // Add this closing order to history
+                        let mut trade = order_to_trade(&order);
+                        trade.entry_price = Some(entry_price);
+                        trade.close_price = Some(close_price);
+                        engine_state.open_trades.insert(order.id.clone(), trade);
+                    } else {
+                        // Opening a new BUY position
+                        let mut trade = order_to_trade(&order);
+                        trade.entry_price = Some(close_price);
+                        trade.close_price = Some(close_price);
+                        
+                        let pnl = 0.0;
+                        if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
+                            *balance += pnl;
+                        }
+                        println!("Order {} filled. Opening new long position at {}. PnL: {}", order.id, close_price, pnl);
+                        
+                        engine_state.open_trades.insert(order.id.clone(), trade);
                     }
-                    println!("Order {} filled. PnL: {}", order.id, pnl);
                 } else if order.filled < order.quantity {
                     order.status = OrderStatus::PartiallyFilled;
                 }
@@ -118,17 +155,38 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
                         if filled == order.quantity {
                             order.price = Some(close_price);
                             order.status = OrderStatus::Filled;
+                            
+                            // Create trade with close_price
+                            let mut trade = order_to_trade(&order);
+                            trade.close_price = Some(close_price);
+                            
+                            let pnl = crate::modules::pnl::calculate_pnl(&trade);
+                            if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
+                                *balance += pnl;
+                            }
+                            println!("Order {} filled. PnL: {}", order.id, pnl);
+                            
+                            // Add trade to open_trades
+                            engine_state.open_trades.insert(order.id.clone(), trade);
                         } else {
                             order.status = OrderStatus::PartiallyFilled;
+                            
+                            // Create partial trade
+                            let mut trade = order_to_trade(&order);
+                            trade.close_price = Some(close_price);
+                            
+                            let pnl = crate::modules::pnl::calculate_pnl(&trade);
+                            if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
+                                *balance += pnl;
+                            }
+                            println!(
+                                "Matched Buy limit order: {} filled {} at avg price {}",
+                                order.id, filled, close_price
+                            );
+                            
+                            // Add trade to open_trades
+                            engine_state.open_trades.insert(order.id.clone(), trade);
                         }
-                        let pnl = crate::modules::pnl::calculate_pnl(&order, &close_price);
-                        if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
-                            *balance -= pnl;
-                        }
-                        println!(
-                            "Matched Buy limit order: {} filled {} at avg price {}",
-                            order.id, filled, close_price
-                        );
                     }
                     if order.filled < order.quantity {
                         let mut remaining_order = order.clone();
@@ -164,11 +222,48 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
                 if order.status == OrderStatus::Filled {
                     let close_price = matched_trades.last().and_then(|t| t.price).unwrap_or(0.0);
                     order.price = Some(close_price);
-                    let pnl = crate::modules::pnl::calculate_pnl(&order, &close_price);
-                    if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
-                        *balance += pnl;
+                    
+                    // Check if user has an open BUY position to close
+                    let existing_position_data = engine_state.open_trades.iter()
+                        .find(|(_, trade)| {
+                            trade.user_id == order.user_id 
+                            && trade.asset == order.asset 
+                            && matches!(trade.side, Side::Buy)
+                        })
+                        .map(|(id, trade)| (id.clone(), trade.entry_price.unwrap_or(0.0)));
+                    
+                    if let Some((existing_id, entry_price)) = existing_position_data {
+                        // Closing an existing BUY position
+                        let pnl = (close_price - entry_price) * order.quantity * order.leverage;
+                        
+                        if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
+                            *balance += pnl;
+                        }
+                        println!("Order {} filled. Closing long position. Entry: {}, Close: {}, PnL: {}", 
+                            order.id, entry_price, close_price, pnl);
+                        
+                        // Remove the closed position
+                        engine_state.open_trades.remove(&existing_id);
+                        
+                        // Add this closing order to history
+                        let mut trade = order_to_trade(&order);
+                        trade.entry_price = Some(entry_price);
+                        trade.close_price = Some(close_price);
+                        engine_state.open_trades.insert(order.id.clone(), trade);
+                    } else {
+                        // Opening a new SELL position
+                        let mut trade = order_to_trade(&order);
+                        trade.entry_price = Some(close_price);
+                        trade.close_price = Some(close_price);
+                        
+                        let pnl = 0.0;
+                        if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
+                            *balance += pnl;
+                        }
+                        println!("Order {} filled. Opening new short position at {}. PnL: {}", order.id, close_price, pnl);
+                        
+                        engine_state.open_trades.insert(order.id.clone(), trade);
                     }
-                    println!("Order {} filled. PnL: {}", order.id, pnl);
                 } else if order.filled < order.quantity {
                     order.status = OrderStatus::PartiallyFilled;
                 }
@@ -180,17 +275,38 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
                         if filled == order.quantity {
                             order.price = Some(close_price);
                             order.status = OrderStatus::Filled;
+                            
+                            // Create trade with close_price
+                            let mut trade = order_to_trade(&order);
+                            trade.close_price = Some(close_price);
+                            
+                            let pnl = crate::modules::pnl::calculate_pnl(&trade);
+                            if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
+                                *balance += pnl;
+                            }
+                            println!("Order {} filled. PnL: {}", order.id, pnl);
+                            
+                            // Add trade to open_trades
+                            engine_state.open_trades.insert(order.id.clone(), trade);
                         } else {
                             order.status = OrderStatus::PartiallyFilled;
+                            
+                            // Create partial trade
+                            let mut trade = order_to_trade(&order);
+                            trade.close_price = Some(close_price);
+                            
+                            let pnl = crate::modules::pnl::calculate_pnl(&trade);
+                            if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
+                                *balance += pnl;
+                            }
+                            println!(
+                                "Matched Sell limit order: {} filled {} at avg price {}",
+                                order.id, filled, close_price
+                            );
+                            
+                            // Add trade to open_trades
+                            engine_state.open_trades.insert(order.id.clone(), trade);
                         }
-                        let pnl = crate::modules::pnl::calculate_pnl(&order, &close_price);
-                        if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
-                            *balance += pnl;
-                        }
-                        println!(
-                            "Matched Sell limit order: {} filled {} at avg price {}",
-                            order.id, filled, close_price
-                        );
                     }
                     if order.filled < order.quantity {
                         let mut remaining_order = order.clone();
@@ -210,10 +326,12 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
 
     engine_state.order_books.insert(asset_key, order_book);
 
-    // Add to open trades
-    engine_state
-        .open_trades
-        .insert(order.id.clone(), order_to_trade(&order));
+    // Add to open trades only if not already added (for unfilled/partial orders)
+    if !engine_state.open_trades.contains_key(&order.id) {
+        engine_state
+            .open_trades
+            .insert(order.id.clone(), order_to_trade(&order));
+    }
 
     println!(
         "Trade created and added to open trades: user={}, order={}, status={:?}",

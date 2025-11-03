@@ -1,6 +1,6 @@
 use crate::modules::pnl::calculate_pnl;
 use crate::modules::state::SharedEngineState;
-use crate::modules::types::{trade_to_order, Side};
+use crate::modules::types::Side;
 
 pub async fn monitor_stop_loss_take_profit(state: SharedEngineState) {
     let mut engine_state = state.lock().await;
@@ -60,10 +60,13 @@ pub async fn monitor_stop_loss_take_profit(state: SharedEngineState) {
 
     // Close trades that hit stop loss or take profit
     for order_id in to_close {
-        if let Some(trade) = engine_state.open_trades.remove(&order_id) {
-            let order = trade_to_order(&trade);
-            let pnl = calculate_pnl(&order, engine_state.prices.get(&order.asset).unwrap());
-            *engine_state.balances.get_mut(&order.user_id).unwrap() += pnl;
+        if let Some(mut trade) = engine_state.open_trades.remove(&order_id) {
+            // Set close_price for accurate PnL
+            if let Some(latest_price) = engine_state.prices.get(&trade.asset) {
+                trade.close_price = Some(*latest_price);
+            }
+            let pnl = calculate_pnl(&trade);
+            *engine_state.balances.get_mut(&trade.user_id).unwrap() += pnl;
             println!("Closed order {} with PnL: {}", order_id, pnl);
         }
     }
