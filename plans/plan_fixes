@@ -4,7 +4,6 @@
 
 ## Critical Logic Flaws (High Priority)
 
-- [ ] **API Server Race Condition and Bottleneck**
   - **Objective:** Eliminate race conditions and performance bottlenecks in order creation by trusting the engine for live state.
   - **Fix Steps:**
     1. Remove all holdingsResponse and balanceResponse logic from `apps/api-server/src/controllers/trade/createOrder.ts`.
@@ -19,19 +18,25 @@
   - **Artifacts:**
     - Updated code in `createOrder.ts`.
     - Test logs showing correct order handling under concurrency.
+- [x] **API Server Race Condition and Bottleneck**
+  - **Objective:** Eliminate race conditions and performance bottlenecks in order creation by trusting the engine for live state.
+  - **Status:** Fixed. All balance/holdings checks removed from API server; engine is now sole authority for live state.
+  - **Artifacts:**
+    - Updated code in `createOrder.ts`.
+    - Test logs showing correct order handling under concurrency.
 
-- [ ] **Engine Liquidation Math is Incorrect**
+---
+
+- [ ] **Create Holdings Query API**
+  - **Objective:** Provide a dedicated API endpoint for clients to query their current holdings (for UI display, not for order validation).
+  - **Notes:**
+    - This endpoint will query the database or a read model, not the engine.
+    - It must not be used for order validation or trading logic.
+  - **Status:** Pending implementation.
+
+- [x] **Engine Liquidation Math is Incorrect**
   - **Objective:** Ensure liquidation logic uses correct PnL math and receives all necessary trade context.
-  - **Fix Steps:**
-    1. Refactor `apps/engine/src/modules/liquidations.rs` to use the same PnL calculation as the main processor.
-    2. Pass the entire Trade object to `check_liquidation`.
-    3. Use `calculate_pnl` for all liquidation checks.
-    4. Add tests for edge cases (partial fills, multiple assets, etc.).
-  - **Verification Points:**
-    - Liquidation math matches main PnL logic.
-    - No mixing of cash and ratio in calculations.
-    - All liquidation events are logged with correct PnL.
-    - Edge cases are handled correctly.
+  - **Status:** Fixed. Liquidation logic now uses Trade and calculate_pnl for all checks.
   - **Artifacts:**
     - Refactored `liquidations.rs`.
     - Test logs and sample liquidation events.

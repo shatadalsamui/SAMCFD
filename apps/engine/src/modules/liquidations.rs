@@ -3,17 +3,18 @@ use crate::modules::state::EngineState; // Updated import for state
 
 
 /// Check if liquidation is needed for a trade
-pub fn check_liquidation(
-    entry_price: f64,
-    latest_price: f64,
-    quantity: f64,
-    margin_used: f64,
-) -> bool {
-    let maintenance_margin_percent = get_maintenance_margin_percent(margin_used);
+use crate::modules::types::Trade;
 
-    let unrealized_pnl = (latest_price - entry_price) * quantity / entry_price;
-    let current_margin = margin_used + unrealized_pnl;
-    let maintenance_margin = (margin_used * maintenance_margin_percent) / 100.0;
+pub fn check_liquidation(trade: &Trade, latest_price: f64) -> bool {
+    let maintenance_margin_percent = get_maintenance_margin_percent(trade.margin);
+
+    // Clone trade and set close_price for PnL calculation
+    let mut temp_trade = trade.clone();
+    temp_trade.close_price = Some(latest_price);
+    let unrealized_pnl = calculate_pnl(&temp_trade);
+
+    let current_margin = trade.margin + unrealized_pnl;
+    let maintenance_margin = (trade.margin * maintenance_margin_percent) / 100.0;
 
     current_margin < maintenance_margin
 }

@@ -62,12 +62,8 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
         .unwrap_or(order.price.unwrap_or(0.0));
 
     // Check for liquidation
-    if check_liquidation(
-        order.price.unwrap_or(0.0),
-        latest_price,
-        order.quantity,
-        order.margin,
-    ) {
+    let trade = order_to_trade(&order);
+    if check_liquidation(&trade, latest_price) {
         liquidate_trade(&mut engine_state, &order.id, latest_price);
         println!("Order {} liquidated due to insufficient margin.", order.id);
         return;
