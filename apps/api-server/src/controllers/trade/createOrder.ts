@@ -30,30 +30,6 @@ export const createOrderController = async (req: Request, res: Response) => {
             expiryTimestamp,
         } = result.data;
 
-        if (side === "sell") {
-            const holdingsResponse = await kafkaRequestResponse(
-                "holdings-query-request",
-                "holdings-query-response",
-                { userId, asset, margin, leverage }
-            );
-            if (!holdingsResponse?.sufficient) {
-                return res.status(400).json({ message: "Insufficient holdings for sell order" });
-            }
-        }
-        // 3. Check balance via Kafka request-response
-        const balanceResponse = await kafkaRequestResponse(
-            "balance-query-request",
-            "balance-query-response",
-            { userId }
-        );
-
-        const balance = balanceResponse?.balance ?? 0;
-        // No conversion to cents
-        if (balance < margin) {
-            return res.status(400).json({ message: "Insufficient balance" });
-        }
-
-
 
         // 4. Generate orderId
         const orderId = uuidv4();

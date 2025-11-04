@@ -1,0 +1,137 @@
+
+# Architectural Review & Problem Report
+
+
+## Critical Logic Flaws (High Priority)
+
+- [ ] **API Server Race Condition and Bottleneck**
+  - **Objective:** Eliminate race conditions and performance bottlenecks in order creation by trusting the engine for live state.
+  - **Fix Steps:**
+    1. Remove all holdingsResponse and balanceResponse logic from `apps/api-server/src/controllers/trade/createOrder.ts`.
+    2. Ensure the API server does not check the database for live balances or holdings before sending orders to the engine.
+    3. Rely on the engine to reject or accept orders based on its in-memory state.
+    4. Test by submitting simultaneous orders from multiple clients and verifying no race conditions or double-spending occur.
+  - **Verification Points:**
+    - No database queries for live balances/holdings in the order creation path.
+    - Engine is sole authority for live state.
+    - No race conditions or inconsistent state observed under concurrent load.
+    - All order rejections/acceptances are logged by the engine, not the API server.
+  - **Artifacts:**
+    - Updated code in `createOrder.ts`.
+    - Test logs showing correct order handling under concurrency.
+
+- [ ] **Engine Liquidation Math is Incorrect**
+  - **Objective:** Ensure liquidation logic uses correct PnL math and receives all necessary trade context.
+  - **Fix Steps:**
+    1. Refactor `apps/engine/src/modules/liquidations.rs` to use the same PnL calculation as the main processor.
+    2. Pass the entire Trade object to `check_liquidation`.
+    3. Use `calculate_pnl` for all liquidation checks.
+    4. Add tests for edge cases (partial fills, multiple assets, etc.).
+  - **Verification Points:**
+    - Liquidation math matches main PnL logic.
+    - No mixing of cash and ratio in calculations.
+    - All liquidation events are logged with correct PnL.
+    - Edge cases are handled correctly.
+  - **Artifacts:**
+    - Refactored `liquidations.rs`.
+    - Test logs and sample liquidation events.
+
+
+
+## Major Completeness Gaps (Next Steps)
+
+- [ ] **Test 'Market order placed first, then limit order' scenario**
+  - **Objective:** Validate that a market order placed before a matching limit order does not execute immediately, but only matches when a suitable limit order is later placed, as per correct order book logic.
+  - **Test Steps:**
+    1. Prepare a market order payload (e.g., BUY 1 BTC at market price) as per the test plan in `plan_order_matching.md`.
+    2. Prepare a limit order payload (e.g., SELL 1 BTC at a specific price) that would match the market order.
+    3. Send the market order payload to the engine via the API or Kafka (as per system design).
+    4. Observe the engine logs and order book state after the market order is placed:
+       - The market order should be accepted and visible in the order book (if tracked), but should NOT match or execute immediately, since there is no opposing limit order yet.
+       - No trade or PnL event should be logged at this stage.
+    5. Send the limit order payload to the engine.
+    6. Observe the engine logs and order book state after the limit order is placed:
+       - The market order should now match with the new limit order.
+       - A trade event should be logged, showing the matched price, quantity, and involved user IDs.
+       - The order book should update, removing the filled market and limit orders.
+       - If PnL is relevant, verify that it is logged correctly for both sides.
+    7. Check the db-processor (if running) for correct trade and balance updates.
+    8. Document all observed logs, order book states, and any discrepancies.
+  - **Verification Points:**
+    - Market order does NOT match until a suitable limit order is placed.
+    - Trade event is only logged after both orders are present.
+    - Order book state transitions are correct before and after matching.
+    - No race conditions or unexpected executions occur.
+    - All logs and state changes are consistent with the expected flow described in `plan_order_matching.md`.
+  - **Artifacts:**
+    - Attach engine logs, order book snapshots, and any relevant Kafka/db-processor outputs to the test documentation.
+    - Note any issues or deviations for follow-up debugging.
+
+- [ ] **Engine Producer is Not Implemented**
+  - **Objective:** Ensure all trade and liquidation events are published to Kafka for downstream processing.
+  - **Fix Steps:**
+    1. Implement Kafka producer logic in `apps/engine/src/modules/processor.rs` and `liquidations.rs`.
+    2. Publish trade-opened, trade-matched, and trade-liquidated messages to a Kafka topic.
+    3. Add error handling and logging for all producer actions.
+    4. Test by simulating trades and liquidations, verifying messages appear on the Kafka topic.
+  - **Verification Points:**
+    - All relevant events are published to Kafka.
+    - No missed or duplicate messages.
+    - Downstream consumers (db-processor) receive and process all events.
+    - Error handling is robust.
+  - **Artifacts:**
+    - Updated engine code with producer logic.
+    - Kafka topic logs and consumer outputs.
+
+- [ ] **Engine State Restoration is Missing**
+  - **Objective:** Guarantee engine can recover full state after restart or crash.
+  - **Fix Steps:**
+    1. Add a state restoration step in `apps/engine/src/main.rs`.
+    2. On startup, request full state from db-processor (balances, open trades).
+    3. Restore all in-memory state before processing new trades.
+    4. Test by simulating engine restarts and verifying no loss of state or double-processing.
+  - **Verification Points:**
+    - Engine restores all balances and open trades on startup.
+    - No trades are lost or duplicated after restart.
+    - System resumes normal operation seamlessly.
+  - **Artifacts:**
+    - Engine startup logs.
+    - Test scenarios for crash/restart recovery.
+
+- [ ] **Engine Snapshotting is Missing**
+  - **Objective:** Provide periodic, durable snapshots of engine state for recovery and audit.
+  - **Fix Steps:**
+    1. Add a periodic snapshotting task in `apps/engine/src/main.rs`.
+    2. Serialize and publish state to a Kafka topic every 5 minutes.
+    3. Ensure db-processor updates the database with each snapshot.
+    4. Test by restoring from a snapshot and verifying state consistency.
+  - **Verification Points:**
+    - Snapshots are published at correct intervals.
+    - State can be restored from any snapshot.
+    - No data loss or corruption in snapshot/restore cycle.
+  - **Artifacts:**
+    - Snapshot messages on Kafka.
+    - Database state after restore.
+
+- [ ] **Frontend is Not Implemented**
+  - **Objective:** Build a user interface for trading and monitoring engine state.
+  - **Fix Steps:**
+    1. Build the UI in `apps/web/app/page.tsx` to connect to the api-server and WebSocket.
+    2. Implement order placement, order book display, and live trade/PnL updates.
+    3. Add authentication and user state management.
+    4. Test all flows end-to-end from frontend to engine.
+  - **Verification Points:**
+    - Users can place orders and see live updates.
+    - UI reflects engine and db-processor state accurately.
+    - All major flows are covered and robust.
+  - **Artifacts:**
+    - UI screenshots and test videos.
+    - User feedback and bug reports.
+
+---
+
+
+---
+
+
+_Tackle each item one by one, verifying correctness and completeness at each step._
