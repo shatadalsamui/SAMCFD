@@ -1,4 +1,5 @@
 use crate::modules::pnl::calculate_pnl;
+use crate::modules::liquidations::{check_liquidation, liquidate_trade};
 use crate::modules::state::SharedEngineState;
 use crate::modules::types::Side;
 
@@ -7,8 +8,16 @@ pub async fn monitor_stop_loss_take_profit(state: SharedEngineState) {
 
     // Iterate through all open trades
     let mut to_close = Vec::new(); // Track trades to close
+    let mut to_liquidate = Vec::new(); // Track trades to liquidate
+    
     for (order_id, trade) in engine_state.open_trades.iter() {
         if let Some(latest_price) = engine_state.prices.get(&trade.asset) {
+            // Check for liquidation first
+            if check_liquidation(trade, *latest_price) {
+                println!("Liquidation triggered for order {}", order_id);
+                to_liquidate.push((order_id.clone(), *latest_price));
+                continue;
+            }
             // Use entry_price as trade.price or fallback to latest_price
             let entry_price = trade.price.unwrap_or(*latest_price);
             match trade.side {
@@ -56,6 +65,11 @@ pub async fn monitor_stop_loss_take_profit(state: SharedEngineState) {
                 }
             }
         }
+    }
+
+    // Liquidate trades that fell below maintenance margin
+    for (order_id, latest_price) in to_liquidate {
+        liquidate_trade(&mut engine_state, &order_id, latest_price);
     }
 
     // Close trades that hit stop loss or take profit

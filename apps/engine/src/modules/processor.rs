@@ -1,5 +1,4 @@
 use crate::kafka::producer;
-use crate::modules::liquidations::{check_liquidation, liquidate_trade};
 use crate::modules::order_matching::{add_limit_order, match_market_order};
 use crate::modules::state::OrderBook;
 use crate::modules::state::SharedEngineState;
@@ -55,27 +54,13 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
         expiry: req.expiry_timestamp,
     };
 
-    let latest_price = engine_state
-        .prices
-        .get(&order.asset)
-        .cloned()
-        .unwrap_or(order.price.unwrap_or(0.0));
-
-    // Check for liquidation
-    let trade = order_to_trade(&order);
-    if check_liquidation(&trade, latest_price) {
-        liquidate_trade(&mut engine_state, &order.id, latest_price);
-        println!("Order {} liquidated due to insufficient margin.", order.id);
-        return;
-    }
-
     let asset_key = order.asset.clone();
     // Temporarily take ownership of the asset book to avoid overlapping borrows.
     let mut order_book = engine_state
         .order_books
         .remove(&asset_key)
         .unwrap_or_else(OrderBook::new);
-    let prices_snapshot = engine_state.prices.clone();
+    let _prices_snapshot = engine_state.prices.clone();
 
     match order.side {
         Side::Buy => match order.order_type {
