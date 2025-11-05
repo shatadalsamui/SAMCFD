@@ -35,6 +35,33 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
         return;
     }
 
+    // Holdings check for SELL orders
+    if matches!(req.side, Side::Sell) {
+        let key = (req.user_id.clone(), req.asset.clone());
+        let req_qty = req.quantity.map(|q| q as f64).unwrap_or(0.0);
+        match engine_state.holdings.get(&key) {
+            Some(quantity) if *quantity >= req_qty => {
+                // Sufficient holdings, proceed
+            }
+            Some(_) => {
+                println!("Insufficient holdings for user: {} asset: {}", req.user_id, req.asset);
+                return;
+            }
+            None => {
+                // Send holdings request and store trade as pending
+                if let Err(e) = producer::send_holdings_request(&req.user_id, &req.asset).await {
+                    eprintln!("Failed to send holdings request: {:?}", e);
+                }
+                engine_state
+                    .pending_trades
+                    .entry(req.user_id.clone())
+                    .or_default()
+                    .push(req);
+                return;
+            }
+        }
+    }
+
     // Create the order
     let mut order = Order {
         id: req.order_id.clone(),

@@ -1,7 +1,7 @@
 mod kafka;
 mod modules;
 
-use kafka::consumer::{consume_balance_responses, consume_price_updates, consume_trade_requests};
+use kafka::consumer::{consume_balance_responses, consume_price_updates, consume_trade_requests, consume_holdings_responses};
 use kafka::producer;
 use modules::price_updater::spawn_price_logger;
 use modules::state::EngineState;
@@ -35,6 +35,14 @@ async fn main() {
     tokio::spawn(async move {
         if let Err(e) = consume_balance_responses(balance_state).await {
             eprintln!("Error in Balance Response Consumer: {:?}", e);
+        }
+    });
+
+    // Spawn Holdings Response Consumer
+    let holdings_state = state.clone();
+    tokio::spawn(async move {
+        if let Err(e) = consume_holdings_responses(holdings_state).await {
+            eprintln!("Error in Holdings Response Consumer: {:?}", e);
         }
     });
 

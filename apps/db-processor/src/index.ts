@@ -40,7 +40,7 @@ const messageHandler = async (topic: string, message: any) => {
             case "balance-query-request":
                 await balanceQueryHandler(parsedMessage);
                 break;
-            case "holdings-query-request":
+            case "holdings-request":
                 await holdingsQueryHandler(parsedMessage);
                 break;
             case "balance-request":
@@ -70,7 +70,7 @@ const startDbProcessor = async () => {
                 "user-creation-request",
                 "user-authentication-request",
                 "balance-query-request",
-                "holdings-query-request",
+                "holdings-request",
                 "balance-request"
             ];
 

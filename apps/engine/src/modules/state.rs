@@ -23,6 +23,7 @@ pub struct EngineState {
     pub order_books: HashMap<String, OrderBook>, // asset -> order book
     pub prices: HashMap<String, f64>,            // asset -> price
     pub pending_trades: HashMap<String, Vec<CreateTradeRequest>>, // user_id -> trades
+    pub holdings: HashMap<(String, String), f64>, //user_id , asset -> quantity
 }
 
 impl EngineState {
@@ -32,7 +33,8 @@ impl EngineState {
             open_trades: HashMap::new(),
             order_books: HashMap::new(),
             prices: HashMap::new(),
-            pending_trades: HashMap::new(), // <-- add this line
+            pending_trades: HashMap::new(),
+            holdings: HashMap::new(),
         }
     }
 }

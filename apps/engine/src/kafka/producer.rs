@@ -17,7 +17,7 @@ pub static PRODUCER: Lazy<Arc<FutureProducer>> = Lazy::new(|| {
 /// Send a balance request for a user to the "balance-request" topic.
 pub async fn send_balance_request(user_id: &str) -> Result<(), Box<dyn std::error::Error>> {
     let payload = json!({
-        "user_id": user_id
+        "userId": user_id
     })
     .to_string();
 
@@ -28,6 +28,26 @@ pub async fn send_balance_request(user_id: &str) -> Result<(), Box<dyn std::erro
     match PRODUCER.send(record, Duration::from_secs(0)).await {
         Ok(_) => println!("Balance request sent for user: {}", user_id),
         Err((e, _)) => println!("Failed to produce balance request: {}", e),
+    }
+
+    Ok(())
+}
+
+/// Send a holdings request for a user and asset to the "holdings-request" topic.
+pub async fn send_holdings_request(user_id: &str, asset: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let payload = json!({
+        "userId": user_id,
+        "asset": asset
+    })
+    .to_string();
+
+    let record = FutureRecord::to("holdings-request")
+        .key(user_id)
+        .payload(&payload);
+
+    match PRODUCER.send(record, Duration::from_secs(0)).await {
+        Ok(_) => println!("Holdings request sent for user: {}, asset: {}", user_id, asset),
+        Err((e, _)) => println!("Failed to produce holdings request: {}", e),
     }
 
     Ok(())

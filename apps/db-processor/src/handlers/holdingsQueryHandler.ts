@@ -3,19 +3,18 @@ import { producer } from "@repo/kafka";
 
 export const holdingsQueryHandler = async (message: any) => {
     try {
-        const { userId, asset, correlationId } = message;
+        const { userId, asset } = message;
 
-        if (!userId || !asset || !correlationId) {
-            console.error("Invalid message: Missing userId, asset, or correlationId");
+        if (!userId || !asset) {
+            console.error("Invalid message: Missing userId or asset");
             await producer.send({
                 topic: "holdings-query-response",
                 messages: [
                     {
-                        key: correlationId,
+                        key: userId || "unknown",
                         value: JSON.stringify({
                             success: false,
-                            message: "Invalid message: Missing userId, asset, or correlationId.",
-                            correlationId,
+                            message: "Invalid message: Missing userId or asset.",
                         }),
                     },
                 ],
@@ -33,11 +32,12 @@ export const holdingsQueryHandler = async (message: any) => {
             topic: "holdings-query-response",
             messages: [
                 {
-                    key: correlationId,
+                    key: userId,
                     value: JSON.stringify({
                         sufficient: Number(heldQuantity) > 0,  // check if user holds any of the asset
                         heldQuantity: Number(heldQuantity),
-                        correlationId,
+                        userId,
+                        asset,
                     }),
                 },
             ],
@@ -48,11 +48,12 @@ export const holdingsQueryHandler = async (message: any) => {
             topic: "holdings-query-response",
             messages: [
                 {
-                    key: message.correlationId || "unknown",
+                    key: message.userId || "unknown",
                     value: JSON.stringify({
                         sufficient: false,
                         reason: `Error checking holdings: ${error.message}`,
-                        correlationId: message.correlationId,
+                        userId: message.userId,
+                        asset: message.asset,
                     }),
                 },
             ],

@@ -155,3 +155,72 @@ pub async fn consume_balance_responses(
         }
     }
 }
+
+pub async fn consume_holdings_responses(
+    state: SharedEngineState,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("Starting Holdings Response Consumer...");
+
+    let consumer: StreamConsumer = ClientConfig::new()
+        .set("group.id", "engine-holdings-group")
+        .set("bootstrap.servers", "localhost:9092")
+        .set("auto.offset.reset", "earliest")
+        .create()
+        .expect("Holdings Consumer creation failed");
+
+    consumer
+        .subscribe(&["holdings-query-response"])
+        .expect("Can't subscribe to holdings-query-response");
+
+    println!("Holdings Response Consumer started, waiting for messages...");
+
+    loop {
+        match consumer.recv().await {
+            Ok(message) => {
+                if let Some(Ok(payload)) = message.payload_view::<str>() {
+                    // Parse the JSON payload
+                    if let Ok(resp) = serde_json::from_str::<serde_json::Value>(payload) {
+                        if let (Some(user_id), Some(asset), Some(held_quantity)) =
+                            (resp.get("userId"), resp.get("asset"), resp.get("heldQuantity"))
+                        {
+                            let user_id = user_id.as_str().unwrap_or_default().to_string();
+                            let asset = asset.as_str().unwrap_or_default().to_string();
+                            let held_quantity = held_quantity.as_f64().unwrap_or(0.0);
+                            // Update the in-memory holdings
+                            println!(
+                                "Received holdings response for user {} asset {}: {}",
+                                user_id, asset, held_quantity
+                            );
+
+                            let mut engine_state = state.lock().await;
+                            engine_state.holdings.insert((user_id.clone(), asset.clone()), held_quantity);
+                            if let Some(updated_holding) = engine_state.holdings.get(&(user_id.clone(), asset.clone())) {
+                                println!(
+                                    "Engine state updated holdings for user {} asset {}: {}",
+                                    user_id, asset, updated_holding
+                                );
+                            }
+
+                            // Process pending trades for this user, if any
+                            if let Some(mut pending) = engine_state.pending_trades.remove(&user_id) {
+                                for trade_req in pending.drain(..) {
+                                    // Drop the lock before calling process_trade_create to avoid deadlock
+                                    drop(engine_state);
+                                    crate::modules::processor::process_trade_create(
+                                        state.clone(),
+                                        trade_req,
+                                    )
+                                    .await;
+                                    engine_state = state.lock().await;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                println!("Error receiving holdings response message: {}", e);
+            }
+        }
+    }
+}
