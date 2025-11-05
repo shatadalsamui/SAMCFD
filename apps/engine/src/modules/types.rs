@@ -42,7 +42,7 @@ impl fmt::Display for OrderStatus {
 #[serde(rename_all = "camelCase")]
 pub struct CreateTradeRequest {
     pub user_id: String,
-    pub order_id: String,
+    pub correlation_id: Option<String>, // For request-response matching
     pub asset: String,
     pub side: Side,  // "buy" | "sell"
     pub margin: f64, // smallest unit (cents)

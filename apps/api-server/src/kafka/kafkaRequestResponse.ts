@@ -4,9 +4,13 @@ import { v4 as uuidv4 } from "uuid";
 // A map to store pending requests
 const pendingRequests = new Map<string, (response: any) => void>();
 
+let consumerReady = false;
+
 // Set up the singleton consumer to listen for responses
 const setupConsumer = async () => {
+    console.log("[Kafka Consumer] Connecting...");
     await consumer.connect();
+    console.log("[Kafka Consumer] Connected, subscribing to topics...");
 
     // Subscribe to all response topics
     await consumer.subscribe({ topic: "user-existence-response", fromBeginning: false });
@@ -17,7 +21,8 @@ const setupConsumer = async () => {
     await consumer.subscribe({ topic: "trade-close-response", fromBeginning: false }); 
     await consumer.subscribe({ topic: "holdings-query-response", fromBeginning: false });
 
-    consumer.run({
+    console.log("[Kafka Consumer] Subscribed, starting consumer...");
+    await consumer.run({
         eachMessage: async ({ topic, message }) => {
             if (!message.value) {
                 console.warn(`Received a message with null value on topic: ${topic}`);
@@ -25,16 +30,23 @@ const setupConsumer = async () => {
             }
 
             const parsedMessage = JSON.parse(message.value.toString());
+            console.log(`[Kafka Consumer] Received message on topic ${topic}:`, parsedMessage);
             const { correlationId } = parsedMessage;
 
             // Resolve the pending request if the correlation ID matches
-            if (pendingRequests.has(correlationId)) {
+            if (correlationId && pendingRequests.has(correlationId)) {
+                console.log(`[Kafka Consumer] Resolving pending request for correlationId: ${correlationId}`);
                 const resolve = pendingRequests.get(correlationId);
                 resolve!(parsedMessage);
                 pendingRequests.delete(correlationId);
+            } else {
+                console.warn(`[Kafka Consumer] No pending request found for correlationId: ${correlationId}`);
             }
         },
     });
+
+    consumerReady = true;
+    console.log("[Kafka Consumer] Ready to receive messages");
 };
 
 // Ensure the consumer is set up once
@@ -46,8 +58,18 @@ export const kafkaRequestResponse = async (
     requestTopic: string,
     responseTopic: string,
     message: any,
-    timeout = 10000 // Timeout in milliseconds
+    timeout = 30000 // Increased timeout to 30 seconds
 ): Promise<any> => {
+    // Wait for consumer to be ready (with timeout)
+    const maxWait = 30000; // 30 seconds
+    const startWait = Date.now();
+    while (!consumerReady && (Date.now() - startWait) < maxWait) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    if (!consumerReady) {
+        throw new Error("Kafka consumer not ready after 30 seconds");
+    }
+
     const correlationId = uuidv4(); // Generate a unique correlation ID
 
     // Add correlationId to the message

@@ -1,13 +1,18 @@
 use crate::kafka::producer;
 use crate::modules::order_matching::{add_limit_order, match_market_order};
 use crate::modules::state::OrderBook;
+use crate::modules::execution::apply_execution;
 use crate::modules::state::SharedEngineState;
 use crate::modules::types::{
     order_to_trade, CreateTradeRequest, Order, OrderStatus, OrderType, Side,
 };
+use uuid::Uuid;
 use std::collections::VecDeque;
 
+// moved to modules/execution.rs as apply_execution
+
 pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequest) {
+    println!("Processing trade request - correlationId: {:?}", req.correlation_id);
     let mut engine_state = state.lock().await;
 
     // Validate user balance and deduct margin in its own scope
@@ -15,6 +20,17 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
     if let Some(balance) = balance {
         if *balance < req.margin {
             println!("Insufficient balance for user: {}", req.user_id);
+            // Publish rejection response
+            let mut response_json = serde_json::json!({
+                "userId": req.user_id,
+                "status": "rejected",
+                "reason": "Insufficient balance"
+            });
+            if let Some(ref corr_id) = req.correlation_id {
+                response_json["correlationId"] = serde_json::json!(corr_id);
+            }
+            let response = response_json.to_string();
+            producer::send_trade_create_response(&req.user_id, &response).await;
             return;
         }
         *balance -= req.margin;
@@ -45,6 +61,17 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
             }
             Some(_) => {
                 println!("Insufficient holdings for user: {} asset: {}", req.user_id, req.asset);
+                // Publish rejection response
+                let mut response_json = serde_json::json!({
+                    "userId": req.user_id,
+                    "status": "rejected",
+                    "reason": "Insufficient holdings"
+                });
+                if let Some(ref corr_id) = req.correlation_id {
+                    response_json["correlationId"] = serde_json::json!(corr_id);
+                }
+                let response = response_json.to_string();
+                producer::send_trade_create_response(&req.user_id, &response).await;
                 return;
             }
             None => {
@@ -62,9 +89,10 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
         }
     }
 
-    // Create the order
+    // Create the order and assign orderId only after all checks pass
+    let order_id = Uuid::new_v4().to_string();
     let mut order = Order {
-        id: req.order_id.clone(),
+        id: order_id.clone(),
         user_id: req.user_id.clone(),
         asset: req.asset.clone(),
         side: req.side.clone(),
@@ -80,8 +108,26 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
         created_at: req.timestamp,
         expiry: req.expiry_timestamp,
     };
-
-    let asset_key = order.asset.clone();
+    // After adding to order book, publish accepted response
+    let mut response_json = serde_json::json!({
+        "orderId": order_id,
+        "userId": order.user_id,
+        "status": "accepted",
+        "details": {
+            "asset": order.asset,
+            "side": order.side,
+            "quantity": order.quantity,
+            "margin": order.margin,
+            "leverage": order.leverage,
+            "orderType": order.order_type,
+            "price": order.price
+        }
+    });
+    if let Some(ref corr_id) = req.correlation_id {
+        response_json["correlationId"] = serde_json::json!(corr_id);
+    }
+    let response = response_json.to_string();
+    producer::send_trade_create_response(&order_id, &response).await;    let asset_key = order.asset.clone();
     // Temporarily take ownership of the asset book to avoid overlapping borrows.
     let mut order_book = engine_state
         .order_books
@@ -152,6 +198,22 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
                         
                         engine_state.open_trades.insert(order.id.clone(), trade);
                     }
+
+                    // Also apply executions for each matched counterparty (they sold)
+                    for ct in matched_trades {
+                        let exec_price = ct.price.unwrap_or(close_price);
+                        let exec_qty = ct.quantity.min(order.quantity);
+                        apply_execution(
+                            &mut engine_state,
+                            &ct.user_id,
+                            &ct.asset,
+                            &Side::Sell,
+                            exec_qty,
+                            exec_price,
+                            ct.leverage,
+                            &ct.id,
+                        );
+                    }
                 } else if order.filled < order.quantity {
                     order.status = OrderStatus::PartiallyFilled;
                 }
@@ -163,37 +225,31 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
                         if filled == order.quantity {
                             order.price = Some(close_price);
                             order.status = OrderStatus::Filled;
-                            
-                            // Create trade with close_price
-                            let mut trade = order_to_trade(&order);
-                            trade.close_price = Some(close_price);
-                            
-                            let pnl = crate::modules::pnl::calculate_pnl(&trade);
-                            if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
-                                *balance += pnl;
-                            }
-                            println!("Order {} filled. PnL: {}", order.id, pnl);
-                            
-                            // Add trade to open_trades
-                            engine_state.open_trades.insert(order.id.clone(), trade);
+
+                            // Apply execution for this user (they bought)
+                            apply_execution(
+                                &mut engine_state,
+                                &order.user_id,
+                                &order.asset,
+                                &Side::Buy,
+                                order.quantity,
+                                close_price,
+                                order.leverage,
+                                &order.id,
+                            );
                         } else {
                             order.status = OrderStatus::PartiallyFilled;
-                            
-                            // Create partial trade
-                            let mut trade = order_to_trade(&order);
-                            trade.close_price = Some(close_price);
-                            
-                            let pnl = crate::modules::pnl::calculate_pnl(&trade);
-                            if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
-                                *balance += pnl;
-                            }
-                            println!(
-                                "Matched Buy limit order: {} filled {} at avg price {}",
-                                order.id, filled, close_price
+                            // Apply execution for filled portion
+                            apply_execution(
+                                &mut engine_state,
+                                &order.user_id,
+                                &order.asset,
+                                &Side::Buy,
+                                filled,
+                                close_price,
+                                order.leverage,
+                                &order.id,
                             );
-                            
-                            // Add trade to open_trades
-                            engine_state.open_trades.insert(order.id.clone(), trade);
                         }
                     }
                     if order.filled < order.quantity {
@@ -272,6 +328,22 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
                         
                         engine_state.open_trades.insert(order.id.clone(), trade);
                     }
+
+                    // Also apply executions for each matched counterparty (they bought)
+                    for ct in matched_trades {
+                        let exec_price = ct.price.unwrap_or(close_price);
+                        let exec_qty = ct.quantity.min(order.quantity);
+                        apply_execution(
+                            &mut engine_state,
+                            &ct.user_id,
+                            &ct.asset,
+                            &Side::Buy,
+                            exec_qty,
+                            exec_price,
+                            ct.leverage,
+                            &ct.id,
+                        );
+                    }
                 } else if order.filled < order.quantity {
                     order.status = OrderStatus::PartiallyFilled;
                 }
@@ -283,37 +355,31 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
                         if filled == order.quantity {
                             order.price = Some(close_price);
                             order.status = OrderStatus::Filled;
-                            
-                            // Create trade with close_price
-                            let mut trade = order_to_trade(&order);
-                            trade.close_price = Some(close_price);
-                            
-                            let pnl = crate::modules::pnl::calculate_pnl(&trade);
-                            if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
-                                *balance += pnl;
-                            }
-                            println!("Order {} filled. PnL: {}", order.id, pnl);
-                            
-                            // Add trade to open_trades
-                            engine_state.open_trades.insert(order.id.clone(), trade);
+
+                            // Apply execution for this user (they sold)
+                            apply_execution(
+                                &mut engine_state,
+                                &order.user_id,
+                                &order.asset,
+                                &Side::Sell,
+                                order.quantity,
+                                close_price,
+                                order.leverage,
+                                &order.id,
+                            );
                         } else {
                             order.status = OrderStatus::PartiallyFilled;
-                            
-                            // Create partial trade
-                            let mut trade = order_to_trade(&order);
-                            trade.close_price = Some(close_price);
-                            
-                            let pnl = crate::modules::pnl::calculate_pnl(&trade);
-                            if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
-                                *balance += pnl;
-                            }
-                            println!(
-                                "Matched Sell limit order: {} filled {} at avg price {}",
-                                order.id, filled, close_price
+                            // Apply execution for filled portion
+                            apply_execution(
+                                &mut engine_state,
+                                &order.user_id,
+                                &order.asset,
+                                &Side::Sell,
+                                filled,
+                                close_price,
+                                order.leverage,
+                                &order.id,
                             );
-                            
-                            // Add trade to open_trades
-                            engine_state.open_trades.insert(order.id.clone(), trade);
                         }
                     }
                     if order.filled < order.quantity {
@@ -334,12 +400,7 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
 
     engine_state.order_books.insert(asset_key, order_book);
 
-    // Add to open trades only if not already added (for unfilled/partial orders)
-    if !engine_state.open_trades.contains_key(&order.id) {
-        engine_state
-            .open_trades
-            .insert(order.id.clone(), order_to_trade(&order));
-    }
+    // Do not insert trades for unfilled orders; trades are recorded upon execution via apply_execution or fill branches.
 
     println!(
         "Trade created and added to open trades: user={}, order={}, status={:?}",

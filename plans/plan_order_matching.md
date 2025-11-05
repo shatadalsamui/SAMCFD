@@ -6,25 +6,25 @@
 
 ---
 
-- [ ] Full open/close cycle (for realized PnL test)
+- [x] Full open/close cycle (for realized PnL test)
   **Payloads:**
   
   ```json
   {
-    "margin": 50.0,
+    "margin": 50000.0,
     "asset": "BTC_USDC",
     "side": "buy",
     "leverage": 1,
     "quantity": 1.0,
     "orderType": "limit",
-    "limitPrice": 105000,
+    "limitPrice": 101000,
     "slippage": 0
   }
   ```
   
   ```json
   {
-    "margin": 50.0,
+    "margin": 50000.0,
     "asset": "BTC_USDC",
     "side": "sell",
     "leverage": 1,
@@ -36,20 +36,20 @@
   
   ```json
   {
-    "margin": 50.0,
+    "margin": 50000.0,
     "asset": "BTC_USDC",
     "side": "buy",
     "leverage": 1,
     "quantity": 1.0,
     "orderType": "limit",
-    "limitPrice": 105000,
+    "limitPrice": 100000,
     "slippage": 0
   }
   ```
   
   ```json
   {
-    "margin": 50.0,
+    "margin": 50000.0,
     "asset": "BTC_USDC",
     "side": "sell",
     "leverage": 1,
@@ -59,10 +59,31 @@
   }
   ```
 
+  **User assignment:**
+  - 1st payload (buy limit 105000): **User A** (cf9ec1ac-0b66-4aa6-9ad1-1d37607caca6)
+  - 2nd payload (sell market): **User B** (a42d7740-e068-474d-b3a1-e65528f727ad)
+  - 3rd payload (buy limit 104000): **User B** (a42d7740-e068-474d-b3a1-e65528f727ad)
+  - 4th payload (sell market): **User A** (cf9ec1ac-0b66-4aa6-9ad1-1d37607caca6)
+
   **Result:**
-  - Use these four payloads in order (buy limit, sell market, buy limit, sell market) to guarantee a full open/close cycle and trigger realized PnL logging.
-  - Assign the first and last order to one user, and the second and third to another user.
-  - This scenario is for verifying PnL calculation and log output after a position is closed at a different price.
+  - ✅ Order 1 (User A buy limit 105000): Added to order book, status=Open
+  - ✅ Order 2 (User B sell market): Matched at 105000, User B opens SHORT position, PnL=0
+  - ✅ Order 3 (User B buy limit 104000): Added to order book, status=Open (should close SHORT but created new LONG instead)
+  - ✅ Order 4 (User A sell market): Matched at 104000, User A closes LONG position, **PnL=-1000**
+  
+  **Issues Found:**
+  - ❌ User B's buy limit at 104000 did NOT close their SHORT position (entry 105000)
+  - ❌ Expected User B PnL: +1000 (shorted at 105000, closed at 104000)
+  - ❌ Actual: User B now has both an open SHORT and an open LONG (incorrect)
+  
+  **Expected Behavior:**
+  - When a user with an open SHORT places a BUY order, it should close the SHORT, not open a new LONG
+  - User B should have PnL=+1000 logged when Order 3 executes
+  
+  **To Fix:**
+  - Engine needs to check if user has an opposite position before creating a new one
+  - If opposite position exists, close it and calculate realized PnL
+  - Only open a new position if no opposite position exists
 # Order Matching Test Plan
 
 ## ✅ To-Do List for Order Matching Engine

@@ -1,7 +1,5 @@
 import { createOrderSchema } from "@repo/schemas";
-import { producer } from "@repo/kafka";
 import { kafkaRequestResponse } from "../../kafka/kafkaRequestResponse";
-import { v4 as uuidv4 } from "uuid";
 import type { Request, Response } from "express";
 
 export const createOrderController = async (req: Request, res: Response) => {
@@ -31,39 +29,35 @@ export const createOrderController = async (req: Request, res: Response) => {
         } = result.data;
 
 
-        // 4. Generate orderId
-        const orderId = uuidv4();
+        // 4. Send request and wait for engine response
+        const engineResponse = await kafkaRequestResponse(
+            "trade-create-request",
+            "trade-create-response",
+            {
+                userId,
+                asset,
+                side,
+                margin,
+                leverage,
+                quantity,
+                slippage,
+                orderType,
+                limitPrice,
+                stopLossPercent,
+                takeProfitPercent,
+                tradeTerm,
+                timeInForce,
+                expiryTimestamp: expiryTimestamp ?? null,
+                timestamp: Date.now(),
+            }
+        );
 
-        // 5. Fire-and-forget: publish sanitized user fields to Kafka (engine computes entryPrice/pnl/etc)
-        await producer.send({
-            topic: "trade-create-request",
-            messages: [
-                {
-                    key: orderId,
-                    value: JSON.stringify({
-                        userId,
-                        orderId,
-                        asset,
-                        side,
-                        margin: margin,
-                        leverage,
-                        quantity,
-                        slippage,
-                        orderType,
-                        limitPrice: limitPrice,
-                        stopLossPercent,
-                        takeProfitPercent,
-                        tradeTerm,
-                        timeInForce,
-                        expiryTimestamp: expiryTimestamp ?? null,
-                        timestamp: Date.now(),
-                    }),
-                },
-            ],
-        });
-
-        // 6. Respond immediately
-        return res.status(200).json({ orderId });
+        // 5. Ensure orderId is always present in response
+        const responseWithOrderId = {
+            ...engineResponse,
+            orderId: engineResponse.orderId ?? null,
+        };
+        return res.status(200).json(responseWithOrderId);
     } catch (error: any) {
         console.error("Error in createOrderController:", error);
         return res.status(500).json({ message: "Internal server error" });

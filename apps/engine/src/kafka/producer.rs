@@ -1,9 +1,9 @@
 use crate::modules::state::SharedEngineState;
+use once_cell::sync::Lazy;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use serde_json::json;
-use std::time::Duration;
-use once_cell::sync::Lazy;
 use std::sync::Arc;
+use std::time::Duration;
 
 // Create a global, shared producer instance
 pub static PRODUCER: Lazy<Arc<FutureProducer>> = Lazy::new(|| {
@@ -34,7 +34,10 @@ pub async fn send_balance_request(user_id: &str) -> Result<(), Box<dyn std::erro
 }
 
 /// Send a holdings request for a user and asset to the "holdings-request" topic.
-pub async fn send_holdings_request(user_id: &str, asset: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn send_holdings_request(
+    user_id: &str,
+    asset: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     let payload = json!({
         "userId": user_id,
         "asset": asset
@@ -46,9 +49,23 @@ pub async fn send_holdings_request(user_id: &str, asset: &str) -> Result<(), Box
         .payload(&payload);
 
     match PRODUCER.send(record, Duration::from_secs(0)).await {
-        Ok(_) => println!("Holdings request sent for user: {}, asset: {}", user_id, asset),
+        Ok(_) => println!(
+            "Holdings request sent for user: {}, asset: {}",
+            user_id, asset
+        ),
         Err((e, _)) => println!("Failed to produce holdings request: {}", e),
     }
 
     Ok(())
+}
+
+/// Send a trade-create-response event to Kafka.
+pub async fn send_trade_create_response(key: &str, response: &str) {
+    let record = FutureRecord::to("trade-create-response")
+        .key(key)
+        .payload(response);
+    match PRODUCER.send(record, Duration::from_secs(0)).await {
+        Ok(_) => println!("trade-create-response sent for key: {}", key),
+        Err((e, _)) => println!("Failed to produce trade-create-response: {}", e),
+    }
 }
