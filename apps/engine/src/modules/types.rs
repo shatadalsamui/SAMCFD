@@ -162,8 +162,13 @@ pub struct TradeOutcome {
     pub pnl: Option<f64>,
     pub status: Option<String>, // "opened", "matched", "liquidated", "closed"
     pub timestamp: Option<i64>,
+    pub margin: Option<f64>,
+    pub leverage: Option<f64>,
+    pub slippage: Option<f64>,
     pub reason: Option<String>,
     pub success: Option<bool>,
+    pub order_type: Option<OrderType>,
+    pub limit_price: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

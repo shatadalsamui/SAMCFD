@@ -63,10 +63,11 @@ pub fn match_market_order(
 }
 
 /// Add a limit order to the appropriate side of the order book
-pub fn add_limit_order(
+pub async fn add_limit_order(
     order: &mut Order,
     opposite_book: &mut BTreeMap<OrderedFloat<f64>, VecDeque<Order>>,
-) -> (f64, f64) {
+    tx: &tokio::sync::mpsc::Sender<String>,
+) -> (f64, f64, Vec<Order>) {
     let matched_trades = match_market_order(order.clone(), opposite_book);
 
     let filled: f64 = matched_trades.iter().map(|trade| trade.quantity).sum();
@@ -90,5 +91,33 @@ pub fn add_limit_order(
         );
     }
 
-    (filled, close_price)
+    // Publish TradeOutcome for each matched counterparty
+    for ct in &matched_trades {
+        let exec_price = ct.price.unwrap_or(close_price);
+        let trade_outcome = crate::modules::types::TradeOutcome {
+            trade_id: ct.id.clone(),
+            user_id: ct.user_id.clone(),
+            asset: ct.asset.clone(),
+            side: ct.side.clone(),
+            quantity: ct.quantity,
+            entry_price: ct.price,
+            close_price: Some(exec_price),
+            pnl: Some(0.0),
+            status: Some("filled".to_string()),
+            timestamp: Some(ct.created_at as i64),
+            margin: Some(ct.margin),
+            leverage: Some(ct.leverage),
+            slippage: Some(0.0),
+            reason: None,
+            success: Some(true),
+            order_type: Some(ct.order_type.clone()),
+            limit_price: if matches!(ct.order_type, crate::modules::types::OrderType::Limit) { ct.price } else { None },
+        };
+        if let Ok(json_string) = serde_json::to_string(&trade_outcome) {
+            let _ = tx.send(json_string).await;
+            println!("Trade outcome published for counterparty: {}", ct.id);
+        }
+    }
+
+    (filled, close_price, matched_trades)
 }

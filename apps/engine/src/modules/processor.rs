@@ -9,8 +9,6 @@ use crate::modules::types::{
 use std::collections::VecDeque;
 use uuid::Uuid;
 
-// moved to modules/execution.rs as apply_execution
-
 pub async fn process_trade_create(
     state: SharedEngineState,
     req: CreateTradeRequest,
@@ -189,28 +187,28 @@ pub async fn process_trade_create(
                         println!("Order {} filled. Closing short position. Entry: {}, Close: {}, PnL: {}", 
                             order.id, entry_price, close_price, pnl);
 
-                        // Remove the closed position
+                        // Remove the closed position - DO NOT re-insert
                         engine_state.open_trades.remove(&existing_id);
 
-                        // Add this closing order to history
-                        let mut trade = order_to_trade(&order);
-                        trade.entry_price = Some(entry_price);
-                        trade.close_price = Some(close_price);
-                        engine_state.open_trades.insert(order.id.clone(), trade);
-                        // Send TradeOutcome to mpsc channel
+                        // Send TradeOutcome to mpsc channel for the CLOSED position
                         let trade_outcome = crate::modules::types::TradeOutcome {
                             trade_id: order.id.clone(),
                             user_id: order.user_id.clone(),
                             asset: order.asset.clone(),
                             side: order.side.clone(),
                             quantity: order.quantity,
-                            entry_price: order.price,
+                            entry_price: Some(entry_price),
                             close_price: Some(close_price),
-                            pnl: pnl.into(),
-                            status: Some("filled".to_string()),
+                            pnl: Some(pnl),
+                            status: Some("closed".to_string()),
                             timestamp: Some(order.created_at as i64),
+                            margin: Some(order.margin),
+                            leverage: Some(order.leverage),
+                            slippage: Some(0.0),
                             reason: None,
                             success: Some(true),
+                            order_type: Some(order.order_type.clone()),
+                            limit_price: if matches!(order.order_type, OrderType::Limit) { order.price } else { None },
                         };
                         if let Ok(json_string) = serde_json::to_string(&trade_outcome) {
                             let _ = tx.send(json_string).await;
@@ -240,11 +238,16 @@ pub async fn process_trade_create(
                             quantity: order.quantity,
                             entry_price: order.price,
                             close_price: Some(close_price),
-                            pnl: pnl.into(),
+                            pnl: Some(pnl),
                             status: Some("filled".to_string()),
                             timestamp: Some(order.created_at as i64),
+                            margin: Some(order.margin),
+                            leverage: Some(order.leverage),
+                            slippage: Some(0.0),
                             reason: None,
                             success: Some(true),
+                            order_type: Some(order.order_type.clone()),
+                            limit_price: if matches!(order.order_type, OrderType::Limit) { order.price } else { None },
                         };
                         if let Ok(json_string) = serde_json::to_string(&trade_outcome) {
                             let _ = tx.send(json_string).await;
@@ -264,7 +267,12 @@ pub async fn process_trade_create(
                             exec_price,
                             ct.leverage,
                             &ct.id,
-                        );
+                            &ct.order_type,
+                            if matches!(ct.order_type, OrderType::Limit) { ct.price } else { None },
+                            ct.margin,
+                            ct.created_at,
+                            &tx,
+                        ).await;
                     }
                 } else if order.filled < order.quantity {
                     order.status = OrderStatus::PartiallyFilled;
@@ -272,7 +280,7 @@ pub async fn process_trade_create(
             }
             OrderType::Limit => {
                 if order.filled < order.quantity {
-                    let (filled, close_price) = add_limit_order(&mut order, &mut order_book.sell);
+                    let (filled, close_price, _matched_trades) = add_limit_order(&mut order, &mut order_book.sell, &tx).await;
                     if filled > 0.0 {
                         if filled == order.quantity {
                             order.price = Some(close_price);
@@ -288,7 +296,12 @@ pub async fn process_trade_create(
                                 close_price,
                                 order.leverage,
                                 &order.id,
-                            );
+                                &order.order_type,
+                                if matches!(order.order_type, OrderType::Limit) { order.price } else { None },
+                                order.margin,
+                                order.created_at,
+                                &tx,
+                            ).await;
                         } else {
                             order.status = OrderStatus::PartiallyFilled;
                             // Apply execution for filled portion
@@ -301,7 +314,12 @@ pub async fn process_trade_create(
                                 close_price,
                                 order.leverage,
                                 &order.id,
-                            );
+                                &order.order_type,
+                                if matches!(order.order_type, OrderType::Limit) { order.price } else { None },
+                                order.margin,
+                                order.created_at,
+                                &tx,
+                            ).await;
                         }
                     }
                     if order.filled < order.quantity {
@@ -362,14 +380,32 @@ pub async fn process_trade_create(
                             order.id, entry_price, close_price, pnl
                         );
 
-                        // Remove the closed position
+                        // Remove the closed position - DO NOT re-insert
                         engine_state.open_trades.remove(&existing_id);
 
-                        // Add this closing order to history
-                        let mut trade = order_to_trade(&order);
-                        trade.entry_price = Some(entry_price);
-                        trade.close_price = Some(close_price);
-                        engine_state.open_trades.insert(order.id.clone(), trade);
+                        // Send TradeOutcome for the CLOSED position
+                        let trade_outcome = crate::modules::types::TradeOutcome {
+                            trade_id: order.id.clone(),
+                            user_id: order.user_id.clone(),
+                            asset: order.asset.clone(),
+                            side: order.side.clone(),
+                            quantity: order.quantity,
+                            entry_price: Some(entry_price),
+                            close_price: Some(close_price),
+                            pnl: Some(pnl),
+                            status: Some("closed".to_string()),
+                            timestamp: Some(order.created_at as i64),
+                            margin: Some(order.margin),
+                            leverage: Some(order.leverage),
+                            slippage: Some(0.0),
+                            reason: None,
+                            success: Some(true),
+                            order_type: Some(order.order_type.clone()),
+                            limit_price: if matches!(order.order_type, OrderType::Limit) { order.price } else { None },
+                        };
+                        if let Ok(json_string) = serde_json::to_string(&trade_outcome) {
+                            let _ = tx.send(json_string).await;
+                        }
                     } else {
                         // Opening a new SELL position
                         let mut trade = order_to_trade(&order);
@@ -386,6 +422,30 @@ pub async fn process_trade_create(
                         );
 
                         engine_state.open_trades.insert(order.id.clone(), trade);
+                        
+                        // Send TradeOutcome to mpsc channel
+                        let trade_outcome = crate::modules::types::TradeOutcome {
+                            trade_id: order.id.clone(),
+                            user_id: order.user_id.clone(),
+                            asset: order.asset.clone(),
+                            side: order.side.clone(),
+                            quantity: order.quantity,
+                            entry_price: Some(close_price),
+                            close_price: Some(close_price),
+                            pnl: Some(pnl),
+                            status: Some("filled".to_string()),
+                            timestamp: Some(order.created_at as i64),
+                            margin: Some(order.margin),
+                            leverage: Some(order.leverage),
+                            slippage: Some(0.0),
+                            reason: None,
+                            success: Some(true),
+                            order_type: Some(order.order_type.clone()),
+                            limit_price: if matches!(order.order_type, OrderType::Limit) { order.price } else { None },
+                        };
+                        if let Ok(json_string) = serde_json::to_string(&trade_outcome) {
+                            let _ = tx.send(json_string).await;
+                        }
                     }
 
                     // Also apply executions for each matched counterparty (they bought)
@@ -401,7 +461,12 @@ pub async fn process_trade_create(
                             exec_price,
                             ct.leverage,
                             &ct.id,
-                        );
+                            &ct.order_type,
+                            if matches!(ct.order_type, OrderType::Limit) { ct.price } else { None },
+                            ct.margin,
+                            ct.created_at,
+                            &tx,
+                        ).await;
                     }
                 } else if order.filled < order.quantity {
                     order.status = OrderStatus::PartiallyFilled;
@@ -409,7 +474,7 @@ pub async fn process_trade_create(
             }
             OrderType::Limit => {
                 if order.filled < order.quantity {
-                    let (filled, close_price) = add_limit_order(&mut order, &mut order_book.buy);
+                    let (filled, close_price, _matched_trades) = add_limit_order(&mut order, &mut order_book.buy, &tx).await;
                     if filled > 0.0 {
                         if filled == order.quantity {
                             order.price = Some(close_price);
@@ -425,7 +490,12 @@ pub async fn process_trade_create(
                                 close_price,
                                 order.leverage,
                                 &order.id,
-                            );
+                                &order.order_type,
+                                if matches!(order.order_type, OrderType::Limit) { order.price } else { None },
+                                order.margin,
+                                order.created_at,
+                                &tx,
+                            ).await;
                         } else {
                             order.status = OrderStatus::PartiallyFilled;
                             // Apply execution for filled portion
@@ -438,7 +508,12 @@ pub async fn process_trade_create(
                                 close_price,
                                 order.leverage,
                                 &order.id,
-                            );
+                                &order.order_type,
+                                if matches!(order.order_type, OrderType::Limit) { order.price } else { None },
+                                order.margin,
+                                order.created_at,
+                                &tx,
+                            ).await;
                         }
                     }
                     if order.filled < order.quantity {

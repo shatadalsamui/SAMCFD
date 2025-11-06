@@ -18,6 +18,8 @@ export const tradeOutcomeHandler = async (message: any) => {
             margin,
             leverage,
             slippage,
+            orderType,
+            limitPrice,
             user
         } = message;
 
@@ -31,6 +33,13 @@ export const tradeOutcomeHandler = async (message: any) => {
         // Map status to Prisma enum
         const prismaStatus = typeof status === "string" && TradeStatus[status.toUpperCase() as keyof typeof TradeStatus]
             ? TradeStatus[status.toUpperCase() as keyof typeof TradeStatus]
+            : undefined;
+
+        // Map orderType to Prisma enum
+        const prismaOrderType = typeof orderType === "string"
+            ? orderType.toUpperCase() === "MARKET" ? "MARKET"
+            : orderType.toUpperCase() === "LIMIT" ? "LIMIT"
+            : undefined
             : undefined;
 
         if (!tradeId || !userId || !asset || !prismaSide || !quantity || !entryPrice || !prismaStatus) {
@@ -55,6 +64,12 @@ export const tradeOutcomeHandler = async (message: any) => {
             leverage: toInt(leverage) ?? 0,
             slippage: toInt(slippage) ?? 0,
         };
+        if (prismaOrderType) {
+            updatePayload.orderType = prismaOrderType;
+        }
+        if (limitPrice !== undefined && limitPrice !== null) {
+            updatePayload.limitPrice = toDecimal(limitPrice);
+        }
         if (userId) {
             updatePayload.user = { connect: { id: userId } };
         }
@@ -74,6 +89,12 @@ export const tradeOutcomeHandler = async (message: any) => {
             leverage: toInt(leverage) ?? 0,
             slippage: toInt(slippage) ?? 0,
         };
+        if (prismaOrderType) {
+            createPayload.orderType = prismaOrderType;
+        }
+        if (limitPrice !== undefined && limitPrice !== null) {
+            createPayload.limitPrice = toDecimal(limitPrice);
+        }
         if (userId) {
             createPayload.user = { connect: { id: userId } };
         }
