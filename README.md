@@ -33,12 +33,13 @@ graph TB
     end
 
     subgraph "Messaging Layer"
-        Kafka["Kafka\nMessage Broker\nTopics:\nuser-requests\nuser-responses\nprice-updates"]
+        Kafka["Kafka\nMessage Broker\nTopics:\nuser-requests\nuser-responses\nprice-updates\ntrade-create-request\ntrade-create-response\ntrade-close-request\ntrade-close-response"]
     end
 
     subgraph "Processing Layer"
         DBProc["DB Processor\nBun + KafkaJS\nPrisma ORM"]
         Poller["Poller\nBun + WS Client\nBackpack Exchange"]
+        Engine["Engine\nRust\nOrder Matching\nPnL\nLiquidation\nState"]
     end
 
     subgraph "Data Layer"
@@ -58,6 +59,7 @@ graph TB
     Poller -->|"Poll Prices"| Backpack
     Poller -->|"Produce"| Kafka
     Kafka -->|"Consume"| DBProc
+    Kafka -->|"Consume"| Engine
     DBProc -->|"Read/Write"| DB
     DBProc -->|"Produce Responses"| Kafka
     Kafka -->|"Consume Responses"| API
@@ -73,6 +75,7 @@ apps/
 ├── api-server/          # Express.js API server (auth, prices, WebSocket)
 ├── db-processor/        # Kafka consumer for DB operations
 ├── poller/              # WebSocket poller for real-time prices
+├── engine/              # Rust matching engine (order matching, PnL, liquidation)
 └── web/                 # Next.js frontend app
 docs/                    # Architecture, flow, and sequence diagrams
 packages/                # Shared libraries
@@ -90,16 +93,16 @@ packages/                # Shared libraries
 ## Microservices & Packages
 
 ### API Server ([`apps/api-server`](apps/api-server))
-- **Express.js + TypeScript**: Handles HTTP requests for authentication (signup, signin, verify OTP, logout, /me) and price queries.
+- **Express.js + TypeScript**: Handles HTTP requests for authentication (signup, signin, verify OTP, logout, /me), price queries, and trade requests.
 - **WebSocket Server**: Broadcasts real-time price updates to all connected clients.
-- **Kafka Integration**: Uses request-response pattern for user existence/auth/creation, ensuring async, decoupled flows.
+- **Kafka Integration**: Uses request-response pattern for user existence/auth/creation/trade, ensuring async, decoupled flows.
 - **Redis Caching**: Stores OTPs, JWT sessions, and price snapshots for low-latency access.
 - **Email Service**: Sends OTPs via Gmail SMTP, with robust error handling and logging.
 - **Security**: JWT tokens (httpOnly cookies), bcrypt password hashing, Zod input validation.
 
 ### DB Processor ([`apps/db-processor`](apps/db-processor))
-- **Kafka Consumer**: Listens for user existence, creation, and authentication requests.
-- **Prisma ORM**: Handles all DB operations (user CRUD) with PostgreSQL.
+- **Kafka Consumer**: Listens for user existence, creation, authentication, balance, and holdings requests.
+- **Prisma ORM**: Handles all DB operations (user CRUD, balances, holdings) with PostgreSQL.
 - **Stateless & Scalable**: Can be horizontally scaled for high-throughput DB workloads.
 
 ### Poller ([`apps/poller`](apps/poller))
@@ -107,6 +110,14 @@ packages/                # Shared libraries
 - **Kafka Producer**: Publishes validated price updates to the `price-updates` topic.
 - **Auto-Reconnect**: Handles disconnections and rate limits gracefully.
 - **Schema Validation**: Uses Zod to ensure all price data is well-formed before publishing.
+
+### Engine ([`apps/engine`](apps/engine))
+- **Rust Matching Engine**: Handles order matching, PnL calculation, liquidation, stop-loss/take-profit, and state management.
+- **Kafka Integration**: Consumes trade requests, price updates, balance/holdings responses; produces trade responses.
+- **Deferred Order Handling**: Waits for balance/holdings before executing trades.
+- **PnL & Liquidation Logic**: Realized PnL is calculated and logged when positions are closed; instant liquidation bug fixed.
+- **Position Management**: Opposite positions are closed before opening new ones; users cannot have both long and short for the same asset.
+- **Logging**: All trade executions, PnL, and liquidations are logged for auditability.
 
 ### Web App ([`apps/web`](apps/web))
 - **Next.js + React**: Modern, responsive UI for trading, signup/signin, OTP verification, and live price dashboard.
@@ -116,7 +127,7 @@ packages/                # Shared libraries
 ### Shared Packages
 
 - **`@repo/ui`** ([`packages/ui`](packages/ui)): Reusable React components (Button, Card, Code, etc.).
-- **`@repo/schemas`** ([`packages/schemas`](packages/schemas)): Zod schemas for all validation (Signup, Signin, OTP, PriceUpdate).
+- **`@repo/schemas`** ([`packages/schemas`](packages/schemas)): Zod schemas for all validation (Signup, Signin, OTP, PriceUpdate, Trade).
 - **`@repo/kafka`** ([`packages/kafka`](packages/kafka)): Singleton Kafka producer/consumer with group management.
 - **`@repo/redis`** ([`packages/redis`](packages/redis)): Redis client with connection pooling and health checks.
 - **`@repo/db`** ([`packages/db`](packages/db)): Prisma client, migrations, and seed scripts.
@@ -127,7 +138,7 @@ packages/                # Shared libraries
 ## Complex Implementations & Highlights
 
 - **Kafka Request-Response Pattern:**  
-  The API server uses a robust request-response pattern over Kafka for all user-related flows (existence check, creation, authentication), with correlation IDs and pending request maps for reliable async communication.
+  The API server uses a robust request-response pattern over Kafka for all user-related and trade flows (existence check, creation, authentication, trade), with correlation IDs and pending request maps for reliable async communication.
 
 - **Fire-and-Forget Kafka for Price Streaming:**  
   Price updates are streamed from the poller to the API server via a dedicated Kafka topic. The API server consumes these updates, broadcasts them over WebSocket, and caches them in Redis for instant HTTP retrieval.
@@ -143,6 +154,12 @@ packages/                # Shared libraries
 
 - **Stateless, Horizontally Scalable Services:**  
   All microservices are stateless and can be scaled independently. Kafka and Redis provide the glue for distributed coordination and caching.
+
+- **Engine PnL & Position Logic:**  
+  The engine now closes opposite positions before opening new ones, ensuring correct realized PnL and preventing users from holding both long and short positions for the same asset. Liquidation logic uses up-to-date prices and only triggers when appropriate.
+
+- **Deferred Trade Execution:**  
+  Trades are only executed after balance and holdings are confirmed, preventing premature liquidation and ensuring correct state.
 
 - **Developer Experience:**  
   Hot reload, unified linting, and shared TS configs make for a seamless developer workflow. All flows are documented with sequence diagrams in `/docs`.
@@ -209,12 +226,14 @@ turbo dev --filter=api-server
 turbo dev --filter=web
 turbo dev --filter=poller
 turbo dev --filter=db-processor
+turbo dev --filter=engine
 ```
 
 - **API Server:** `bun run start` in [`apps/api-server`](apps/api-server)
 - **Web App:** `npm run dev` in [`apps/web`](apps/web)
 - **Poller:** `bun run dev` in [`apps/poller`](apps/poller)
 - **DB Processor:** `bun run dev` in [`apps/db-processor`](apps/db-processor)
+- **Engine:** `cargo run` in [`apps/engine`](apps/engine)
 
 > **Ensure Kafka, Redis, and PostgreSQL are running (e.g., via Docker Compose).**
 
@@ -222,7 +241,7 @@ turbo dev --filter=db-processor
 
 ## Scalability & Production Notes
 
-- **Stateless Services:** All services can be scaled horizontally (multiple API servers, DB processors, pollers).
+- **Stateless Services:** All services can be scaled horizontally (multiple API servers, DB processors, pollers, engines).
 - **Kafka & Redis:** Cluster for high throughput and failover.
 - **WebSocket Clustering:** Use sticky sessions or Redis pub/sub for 10k+ concurrent clients.
 - **Email Bottleneck:** For high signup rates, switch from Gmail SMTP to a transactional email provider (e.g., SES, SendGrid, Resend).
