@@ -152,12 +152,18 @@ pub fn trade_to_order(trade: &Trade) -> Order {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TradeOutcome {
-    pub order_id: String,
+    pub trade_id: String,
     pub user_id: String,
-    pub success: bool,
-    pub reason: Option<String>,
+    pub asset: String,
+    pub side: Side,
+    pub quantity: f64,
+    pub entry_price: Option<f64>,
+    pub close_price: Option<f64>,
     pub pnl: Option<f64>,
-    pub status: Option<String>,
+    pub status: Option<String>, // "opened", "matched", "liquidated", "closed"
+    pub timestamp: Option<i64>,
+    pub reason: Option<String>,
+    pub success: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

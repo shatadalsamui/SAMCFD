@@ -10,6 +10,7 @@ use serde_json;
 /// Consumer for fast trade requests (subscribed only to "trade-create-request")
 pub async fn consume_trade_requests(
     state: SharedEngineState,
+    tx: tokio::sync::mpsc::Sender<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting Trade Request Consumer...");
 
@@ -35,8 +36,9 @@ pub async fn consume_trade_requests(
                         Ok(req) => {
                             println!("Received trade create request: {:?}", req);
                             let state_clone = state.clone();
+                            let tx_clone = tx.clone();
                             tokio::spawn(async move {
-                                process_trade_create(state_clone, req).await; // Remove if let Err, as it returns ()
+                                process_trade_create(state_clone, req, tx_clone).await;
                             });
                         }
                         Err(e) => {
@@ -55,6 +57,7 @@ pub async fn consume_trade_requests(
 /// Consumer for slow price updates (subscribed only to "price-updates")
 pub async fn consume_price_updates(
     state: SharedEngineState,
+    tx: tokio::sync::mpsc::Sender<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting Price Update Consumer...");
 
@@ -88,6 +91,7 @@ pub async fn consume_price_updates(
 
 pub async fn consume_balance_responses(
     state: SharedEngineState,
+    tx: tokio::sync::mpsc::Sender<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting Balance Response Consumer...");
 
@@ -139,6 +143,7 @@ pub async fn consume_balance_responses(
                                     crate::modules::processor::process_trade_create(
                                         state.clone(),
                                         trade_req,
+                                        tx.clone(),
                                     )
                                     .await;
                                     engine_state = state.lock().await;
@@ -158,6 +163,7 @@ pub async fn consume_balance_responses(
 
 pub async fn consume_holdings_responses(
     state: SharedEngineState,
+    tx: tokio::sync::mpsc::Sender<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting Holdings Response Consumer...");
 
@@ -180,9 +186,11 @@ pub async fn consume_holdings_responses(
                 if let Some(Ok(payload)) = message.payload_view::<str>() {
                     // Parse the JSON payload
                     if let Ok(resp) = serde_json::from_str::<serde_json::Value>(payload) {
-                        if let (Some(user_id), Some(asset), Some(held_quantity)) =
-                            (resp.get("userId"), resp.get("asset"), resp.get("heldQuantity"))
-                        {
+                        if let (Some(user_id), Some(asset), Some(held_quantity)) = (
+                            resp.get("userId"),
+                            resp.get("asset"),
+                            resp.get("heldQuantity"),
+                        ) {
                             let user_id = user_id.as_str().unwrap_or_default().to_string();
                             let asset = asset.as_str().unwrap_or_default().to_string();
                             let held_quantity = held_quantity.as_f64().unwrap_or(0.0);
@@ -193,8 +201,12 @@ pub async fn consume_holdings_responses(
                             );
 
                             let mut engine_state = state.lock().await;
-                            engine_state.holdings.insert((user_id.clone(), asset.clone()), held_quantity);
-                            if let Some(updated_holding) = engine_state.holdings.get(&(user_id.clone(), asset.clone())) {
+                            engine_state
+                                .holdings
+                                .insert((user_id.clone(), asset.clone()), held_quantity);
+                            if let Some(updated_holding) =
+                                engine_state.holdings.get(&(user_id.clone(), asset.clone()))
+                            {
                                 println!(
                                     "Engine state updated holdings for user {} asset {}: {}",
                                     user_id, asset, updated_holding
@@ -202,13 +214,15 @@ pub async fn consume_holdings_responses(
                             }
 
                             // Process pending trades for this user, if any
-                            if let Some(mut pending) = engine_state.pending_trades.remove(&user_id) {
+                            if let Some(mut pending) = engine_state.pending_trades.remove(&user_id)
+                            {
                                 for trade_req in pending.drain(..) {
                                     // Drop the lock before calling process_trade_create to avoid deadlock
                                     drop(engine_state);
                                     crate::modules::processor::process_trade_create(
                                         state.clone(),
                                         trade_req,
+                                        tx.clone(),
                                     )
                                     .await;
                                     engine_state = state.lock().await;

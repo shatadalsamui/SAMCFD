@@ -1,18 +1,25 @@
 use crate::kafka::producer;
+use crate::modules::execution::apply_execution;
 use crate::modules::order_matching::{add_limit_order, match_market_order};
 use crate::modules::state::OrderBook;
-use crate::modules::execution::apply_execution;
 use crate::modules::state::SharedEngineState;
 use crate::modules::types::{
     order_to_trade, CreateTradeRequest, Order, OrderStatus, OrderType, Side,
 };
-use uuid::Uuid;
 use std::collections::VecDeque;
+use uuid::Uuid;
 
 // moved to modules/execution.rs as apply_execution
 
-pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequest) {
-    println!("Processing trade request - correlationId: {:?}", req.correlation_id);
+pub async fn process_trade_create(
+    state: SharedEngineState,
+    req: CreateTradeRequest,
+    tx: tokio::sync::mpsc::Sender<String>,
+) {
+    println!(
+        "Processing trade request - correlationId: {:?}",
+        req.correlation_id
+    );
     let mut engine_state = state.lock().await;
 
     // Validate user balance and deduct margin in its own scope
@@ -60,7 +67,10 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
                 // Sufficient holdings, proceed
             }
             Some(_) => {
-                println!("Insufficient holdings for user: {} asset: {}", req.user_id, req.asset);
+                println!(
+                    "Insufficient holdings for user: {} asset: {}",
+                    req.user_id, req.asset
+                );
                 // Publish rejection response
                 let mut response_json = serde_json::json!({
                     "userId": req.user_id,
@@ -127,7 +137,8 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
         response_json["correlationId"] = serde_json::json!(corr_id);
     }
     let response = response_json.to_string();
-    producer::send_trade_create_response(&order_id, &response).await;    let asset_key = order.asset.clone();
+    producer::send_trade_create_response(&order_id, &response).await;
+    let asset_key = order.asset.clone();
     // Temporarily take ownership of the asset book to avoid overlapping borrows.
     let mut order_book = engine_state
         .order_books
@@ -156,47 +167,88 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
                 if order.status == OrderStatus::Filled {
                     let close_price = matched_trades.last().and_then(|t| t.price).unwrap_or(0.0);
                     order.price = Some(close_price);
-                    
+
                     // Check if user has an open SELL position to close
-                    let existing_position_data = engine_state.open_trades.iter()
+                    let existing_position_data = engine_state
+                        .open_trades
+                        .iter()
                         .find(|(_, trade)| {
-                            trade.user_id == order.user_id 
-                            && trade.asset == order.asset 
-                            && matches!(trade.side, Side::Sell)
+                            trade.user_id == order.user_id
+                                && trade.asset == order.asset
+                                && matches!(trade.side, Side::Sell)
                         })
                         .map(|(id, trade)| (id.clone(), trade.entry_price.unwrap_or(0.0)));
-                    
+
                     if let Some((existing_id, entry_price)) = existing_position_data {
                         // Closing an existing SELL position
                         let pnl = (entry_price - close_price) * order.quantity * order.leverage;
-                        
+
                         if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
                             *balance += pnl;
                         }
                         println!("Order {} filled. Closing short position. Entry: {}, Close: {}, PnL: {}", 
                             order.id, entry_price, close_price, pnl);
-                        
+
                         // Remove the closed position
                         engine_state.open_trades.remove(&existing_id);
-                        
+
                         // Add this closing order to history
                         let mut trade = order_to_trade(&order);
                         trade.entry_price = Some(entry_price);
                         trade.close_price = Some(close_price);
                         engine_state.open_trades.insert(order.id.clone(), trade);
+                        // Send TradeOutcome to mpsc channel
+                        let trade_outcome = crate::modules::types::TradeOutcome {
+                            trade_id: order.id.clone(),
+                            user_id: order.user_id.clone(),
+                            asset: order.asset.clone(),
+                            side: order.side.clone(),
+                            quantity: order.quantity,
+                            entry_price: order.price,
+                            close_price: Some(close_price),
+                            pnl: pnl.into(),
+                            status: Some("filled".to_string()),
+                            timestamp: Some(order.created_at as i64),
+                            reason: None,
+                            success: Some(true),
+                        };
+                        if let Ok(json_string) = serde_json::to_string(&trade_outcome) {
+                            let _ = tx.send(json_string).await;
+                        }
                     } else {
                         // Opening a new BUY position
                         let mut trade = order_to_trade(&order);
                         trade.entry_price = Some(close_price);
                         trade.close_price = Some(close_price);
-                        
+
                         let pnl = 0.0;
                         if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
                             *balance += pnl;
                         }
-                        println!("Order {} filled. Opening new long position at {}. PnL: {}", order.id, close_price, pnl);
-                        
+                        println!(
+                            "Order {} filled. Opening new long position at {}. PnL: {}",
+                            order.id, close_price, pnl
+                        );
+
                         engine_state.open_trades.insert(order.id.clone(), trade);
+                        // Send TradeOutcome to mpsc channel
+                        let trade_outcome = crate::modules::types::TradeOutcome {
+                            trade_id: order.id.clone(),
+                            user_id: order.user_id.clone(),
+                            asset: order.asset.clone(),
+                            side: order.side.clone(),
+                            quantity: order.quantity,
+                            entry_price: order.price,
+                            close_price: Some(close_price),
+                            pnl: pnl.into(),
+                            status: Some("filled".to_string()),
+                            timestamp: Some(order.created_at as i64),
+                            reason: None,
+                            success: Some(true),
+                        };
+                        if let Ok(json_string) = serde_json::to_string(&trade_outcome) {
+                            let _ = tx.send(json_string).await;
+                        }
                     }
 
                     // Also apply executions for each matched counterparty (they sold)
@@ -286,29 +338,33 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
                 if order.status == OrderStatus::Filled {
                     let close_price = matched_trades.last().and_then(|t| t.price).unwrap_or(0.0);
                     order.price = Some(close_price);
-                    
+
                     // Check if user has an open BUY position to close
-                    let existing_position_data = engine_state.open_trades.iter()
+                    let existing_position_data = engine_state
+                        .open_trades
+                        .iter()
                         .find(|(_, trade)| {
-                            trade.user_id == order.user_id 
-                            && trade.asset == order.asset 
-                            && matches!(trade.side, Side::Buy)
+                            trade.user_id == order.user_id
+                                && trade.asset == order.asset
+                                && matches!(trade.side, Side::Buy)
                         })
                         .map(|(id, trade)| (id.clone(), trade.entry_price.unwrap_or(0.0)));
-                    
+
                     if let Some((existing_id, entry_price)) = existing_position_data {
                         // Closing an existing BUY position
                         let pnl = (close_price - entry_price) * order.quantity * order.leverage;
-                        
+
                         if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
                             *balance += pnl;
                         }
-                        println!("Order {} filled. Closing long position. Entry: {}, Close: {}, PnL: {}", 
-                            order.id, entry_price, close_price, pnl);
-                        
+                        println!(
+                            "Order {} filled. Closing long position. Entry: {}, Close: {}, PnL: {}",
+                            order.id, entry_price, close_price, pnl
+                        );
+
                         // Remove the closed position
                         engine_state.open_trades.remove(&existing_id);
-                        
+
                         // Add this closing order to history
                         let mut trade = order_to_trade(&order);
                         trade.entry_price = Some(entry_price);
@@ -319,13 +375,16 @@ pub async fn process_trade_create(state: SharedEngineState, req: CreateTradeRequ
                         let mut trade = order_to_trade(&order);
                         trade.entry_price = Some(close_price);
                         trade.close_price = Some(close_price);
-                        
+
                         let pnl = 0.0;
                         if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
                             *balance += pnl;
                         }
-                        println!("Order {} filled. Opening new short position at {}. PnL: {}", order.id, close_price, pnl);
-                        
+                        println!(
+                            "Order {} filled. Opening new short position at {}. PnL: {}",
+                            order.id, close_price, pnl
+                        );
+
                         engine_state.open_trades.insert(order.id.clone(), trade);
                     }
 

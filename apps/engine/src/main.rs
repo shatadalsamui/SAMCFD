@@ -1,47 +1,56 @@
 mod kafka;
 mod modules;
 
-use kafka::consumer::{consume_balance_responses, consume_price_updates, consume_trade_requests, consume_holdings_responses};
+use kafka::consumer::{
+    consume_balance_responses, consume_holdings_responses, consume_price_updates,
+    consume_trade_requests,
+};
 use kafka::producer;
 use modules::price_updater::spawn_price_logger;
 use modules::state::EngineState;
 use modules::stop_loss_take_profit::monitor_stop_loss_take_profit;
 use std::sync::Arc;
+use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 use tokio::time::Duration;
 
 #[tokio::main]
 async fn main() {
     let state = Arc::new(Mutex::new(EngineState::new()));
+    let (tx, mut rx) = mpsc::channel::<String>(1024);
 
     // Spawn Trade Request Consumer (fast jobs)
     let trade_state = state.clone();
+    let trade_tx = tx.clone();
     tokio::spawn(async move {
-        if let Err(e) = consume_trade_requests(trade_state).await {
+        if let Err(e) = consume_trade_requests(trade_state, trade_tx).await {
             eprintln!("Error in Trade Request Consumer: {:?}", e);
         }
     });
 
     // Spawn Price Update Consumer (slow jobs)
     let price_state = state.clone();
+    let price_tx = tx.clone();
     tokio::spawn(async move {
-        if let Err(e) = consume_price_updates(price_state).await {
+        if let Err(e) = consume_price_updates(price_state, price_tx).await {
             eprintln!("Error in Price Update Consumer: {:?}", e);
         }
     });
 
     // Spawn Balance Response Consumer
     let balance_state = state.clone();
+    let balance_tx = tx.clone();
     tokio::spawn(async move {
-        if let Err(e) = consume_balance_responses(balance_state).await {
+        if let Err(e) = consume_balance_responses(balance_state, balance_tx).await {
             eprintln!("Error in Balance Response Consumer: {:?}", e);
         }
     });
 
     // Spawn Holdings Response Consumer
     let holdings_state = state.clone();
+    let holdings_tx = tx.clone();
     tokio::spawn(async move {
-        if let Err(e) = consume_holdings_responses(holdings_state).await {
+        if let Err(e) = consume_holdings_responses(holdings_state, holdings_tx).await {
             eprintln!("Error in Holdings Response Consumer: {:?}", e);
         }
     });
@@ -50,10 +59,19 @@ async fn main() {
 
     // Start stop-loss and take-profit monitoring
     let stop_loss_state = state.clone();
+    let sl_tx = tx.clone();
     tokio::spawn(async move {
         loop {
-            monitor_stop_loss_take_profit(stop_loss_state.clone()).await;
+            monitor_stop_loss_take_profit(stop_loss_state.clone(), sl_tx.clone()).await;
             tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    });
+
+    tokio::spawn(async move {
+        while let Some(msg) = rx.recv().await {
+            if let Err(e) = producer::publish_trade_outcome(&msg).await {
+                eprintln!("Failed to publish trade outcome: {:?}", e);
+            }
         }
     });
 

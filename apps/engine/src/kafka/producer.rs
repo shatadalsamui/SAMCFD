@@ -1,6 +1,6 @@
-use crate::modules::state::SharedEngineState;
 use once_cell::sync::Lazy;
 use rdkafka::producer::{FutureProducer, FutureRecord};
+use serde::de::Error as SerdeDeError;
 use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
@@ -68,4 +68,27 @@ pub async fn send_trade_create_response(key: &str, response: &str) {
         Ok(_) => println!("trade-create-response sent for key: {}", key),
         Err((e, _)) => println!("Failed to produce trade-create-response: {}", e),
     }
+}
+
+pub async fn publish_trade_outcome(msg: &str) -> Result<(), Box<dyn std::error::Error>> {
+    // Parse the trade_id from the JSON message
+    let trade_id = serde_json::from_str::<serde_json::Value>(msg)
+        .and_then(|v| {
+            v.get("trade_id")
+                .and_then(|id| id.as_str())
+                .map(|s| s.to_string())
+                .ok_or_else(|| SerdeDeError::custom("Missing trade_id"))
+        })
+        .unwrap_or_default();
+
+    let record = FutureRecord::to("trade-outcome")
+        .key(&trade_id)
+        .payload(msg);
+
+    match PRODUCER.send(record, Duration::from_secs(0)).await {
+        Ok(_) => println!("Trade outcome published: {}", msg),
+        Err((e, _)) => println!("Failed to publish trade outcome: {}", e),
+    }
+
+    Ok(())
 }

@@ -3,7 +3,7 @@ use crate::modules::liquidations::{check_liquidation, liquidate_trade};
 use crate::modules::state::SharedEngineState;
 use crate::modules::types::Side;
 
-pub async fn monitor_stop_loss_take_profit(state: SharedEngineState) {
+pub async fn monitor_stop_loss_take_profit(state: SharedEngineState, tx: tokio::sync::mpsc::Sender<String>) {
     let mut engine_state = state.lock().await;
 
     // Iterate through all open trades
