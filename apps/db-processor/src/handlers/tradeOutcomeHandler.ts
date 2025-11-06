@@ -1,5 +1,6 @@
 import { db as prisma } from "@repo/db";
 import { TradeStatus } from "@repo/db/generated/prisma";
+import Decimal from "decimal.js";
 
 export const tradeOutcomeHandler = async (message: any) => {
     try {
@@ -37,18 +38,22 @@ export const tradeOutcomeHandler = async (message: any) => {
             return;
         }
 
+        // Convert numeric fields to correct types
+        const toDecimal = (val: any) => val !== undefined && val !== null ? new Decimal(val).toNumber() : undefined;
+        const toInt = (val: any) => val !== undefined && val !== null ? Number(val) : undefined;
+
         const updatePayload: any = {
             asset,
             side: prismaSide,
-            quantity,
-            entryPrice,
-            closePrice,
-            pnl,
+            quantity: toDecimal(quantity),
+            entryPrice: toDecimal(entryPrice),
+            closePrice: toDecimal(closePrice),
+            pnl: toDecimal(pnl),
             status: prismaStatus,
             closedAt: timestamp ? new Date(timestamp) : undefined,
-            margin: margin ?? 0,
-            leverage: leverage ?? 0,
-            slippage: slippage ?? 0,
+            margin: toDecimal(margin) ?? 0,
+            leverage: toInt(leverage) ?? 0,
+            slippage: toInt(slippage) ?? 0,
         };
         if (userId) {
             updatePayload.user = { connect: { id: userId } };
@@ -58,16 +63,16 @@ export const tradeOutcomeHandler = async (message: any) => {
             id: tradeId,
             asset,
             side: prismaSide,
-            quantity,
-            entryPrice,
-            closePrice,
-            pnl,
+            quantity: toDecimal(quantity),
+            entryPrice: toDecimal(entryPrice),
+            closePrice: toDecimal(closePrice),
+            pnl: toDecimal(pnl),
             status: prismaStatus,
             createdAt: timestamp ? new Date(timestamp) : new Date(),
             closedAt: timestamp ? new Date(timestamp) : undefined,
-            margin: margin ?? 0,
-            leverage: leverage ?? 0,
-            slippage: slippage ?? 0,
+            margin: toDecimal(margin) ?? 0,
+            leverage: toInt(leverage) ?? 0,
+            slippage: toInt(slippage) ?? 0,
         };
         if (userId) {
             createPayload.user = { connect: { id: userId } };

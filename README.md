@@ -1,8 +1,10 @@
-# CFD-Broker: Real-Time CFD Trading Platform
 
-CFD-Broker is a production-grade, event-driven trading platform for Contracts for Difference (CFDs), built for scalability, reliability, and ultra-low-latency performance. The platform features secure user authentication, high-frequency price streaming, and a modern web interface for trading simulations. Architected as a monorepo with Turborepo, it leverages a microservices architecture powered by the Bun runtime, Kafka for asynchronous messaging, Redis for low-latency caching, and PostgreSQL for robust data persistence.
+# SAMEX: Real-Time Crypto Exchange Platform
+
+SAMEX is a production-grade, event-driven trading platform for spot cryptocurrency trading, built for scalability, reliability, and ultra-low-latency performance. The platform features secure user authentication, high-frequency price streaming, and a modern web interface for trading simulations. Architected as a monorepo with Turborepo, it leverages a microservices architecture powered by the Bun runtime, Kafka for asynchronous messaging, Redis for low-latency caching, and PostgreSQL for robust data persistence.
 
 ---
+
 
 ## Key Features & Metrics
 
@@ -16,9 +18,10 @@ CFD-Broker is a production-grade, event-driven trading platform for Contracts fo
 
 ---
 
+
 ## Architecture Overview
 
-CFD-Broker is a microservices-based platform using event-driven communication via Kafka, in-memory caching with Redis, and PostgreSQL for persistence. All services are container-ready and can be orchestrated via Docker Compose or Kubernetes.
+SAMEX is a microservices-based platform using event-driven communication via Kafka, in-memory caching with Redis, and PostgreSQL for persistence. All services are container-ready and can be orchestrated via Docker Compose or Kubernetes.
 
 ### High-Level Architecture Diagram
 
@@ -39,11 +42,11 @@ graph TB
     subgraph "Processing Layer"
         DBProc["DB Processor\nBun + KafkaJS\nPrisma ORM"]
         Poller["Poller\nBun + WS Client\nBackpack Exchange"]
-        Engine["Engine\nRust\nOrder Matching\nPnL\nLiquidation\nState"]
+  Engine["Engine\nRust\nCentral Limit Order Book (CLOB)\nPnL\nLiquidation\nState"]
     end
 
     subgraph "Data Layer"
-        DB["PostgreSQL\nUser Table"]
+      DB["PostgreSQL\nUser Table, Trades"]
         Redis["Redis\nOTP Cache\nSession Tokens\nPrice Cache"]
     end
 
@@ -111,13 +114,14 @@ packages/                # Shared libraries
 - **Auto-Reconnect**: Handles disconnections and rate limits gracefully.
 - **Schema Validation**: Uses Zod to ensure all price data is well-formed before publishing.
 
+
 ### Engine ([`apps/engine`](apps/engine))
-- **Rust Matching Engine**: Handles order matching, PnL calculation, liquidation, stop-loss/take-profit, and state management.
-- **Kafka Integration**: Consumes trade requests, price updates, balance/holdings responses; produces trade responses.
-- **Deferred Order Handling**: Waits for balance/holdings before executing trades.
-- **PnL & Liquidation Logic**: Realized PnL is calculated and logged when positions are closed; instant liquidation bug fixed.
-- **Position Management**: Opposite positions are closed before opening new ones; users cannot have both long and short for the same asset.
-- **Logging**: All trade executions, PnL, and liquidations are logged for auditability.
+- **Rust Matching Engine:** Handles Central Limit Order Book (CLOB) logic, PnL calculation, liquidation, stop-loss/take-profit, and state management.
+- **Kafka Integration:** Consumes trade requests, price updates, balance/holdings responses; produces trade responses.
+- **Deferred Order Handling:** Waits for balance/holdings before executing trades.
+- **PnL & Liquidation Logic:** Realized PnL is calculated and logged when positions are closed; instant liquidation bug fixed.
+- **Position Management:** Opposite positions are closed before opening new ones; users cannot have both long and short for the same asset.
+- **Logging:** All trade executions, PnL, and liquidations are logged for auditability.
 
 ### Web App ([`apps/web`](apps/web))
 - **Next.js + React**: Modern, responsive UI for trading, signup/signin, OTP verification, and live price dashboard.
@@ -166,6 +170,7 @@ packages/                # Shared libraries
 
 ---
 
+
 ## Performance Benchmarks
 
 - **Signup:** ~3.5s (email bottleneck via SMTP)
@@ -202,7 +207,7 @@ packages/                # Shared libraries
    - [`apps/api-server/.env`](apps/api-server/.env): `PORT=3001`, `JWT_SECRET=...`, `GMAIL_USER=...`, `GMAIL_APP_PASSWORD=...`, `WS_PORT=8080`
    - [`packages/kafka/.env.example`](packages/kafka/.env.example): `KAFKA_BROKER=localhost:9092`
    - [`packages/redis/.env.example`](packages/redis/.env.example): `REDIS_URL=redis://localhost:6379`
-   - [`packages/db/env.example`](packages/db/env.example): `DATABASE_URL=postgresql://user:pass@localhost:5432/cfdbroker`
+  - [`packages/db/env.example`](packages/db/env.example): `DATABASE_URL=postgresql://user:pass@localhost:5432/samex`
    - [`apps/poller/src/config.ts`](apps/poller/src/config.ts): `BACKPACK_WS_URL=wss://ws.backpack.exchange/`
 
 4. **Run DB migrations:**  
@@ -276,4 +281,4 @@ turbo dev --filter=engine
 ---
 
 For issues, open a PR or issue in the repo.  
-**CFD-Broker: Built for scale. Engineered for speed. Designed for developers.**
+**SAMEX: Built for scale. Engineered for speed. Designed for developers.**
