@@ -9,6 +9,7 @@ import { userAuthenticationHandler } from "./handlers/userAuthenticationHandler"
 import { balanceQueryHandler } from "./handlers/balanceQueryHandler";
 import { holdingsQueryHandler } from "./handlers/holdingsQueryHandler";
 import { balanceRequestHandler } from "./handlers/balanceRequestHandler";
+import { tradeOutcomeHandler } from "./handlers/tradeOutcomeHandler";
 
 const messageHandler = async (topic: string, message: any) => {
     // Handles incoming Kafka messages based on their topic.
@@ -46,6 +47,9 @@ const messageHandler = async (topic: string, message: any) => {
             case "balance-request":
                 await balanceRequestHandler(parsedMessage);
                 break;
+            case "trade-outcome":
+                await tradeOutcomeHandler(parsedMessage);
+                break;
             default:
                 console.warn(`Unknown topic: ${topic}`);
         }
@@ -71,7 +75,8 @@ const startDbProcessor = async () => {
                 "user-authentication-request",
                 "balance-query-request",
                 "holdings-request",
-                "balance-request"
+                "balance-request",
+                "trade-outcome"
             ];
 
         await setupKafkaConsumer(topics, messageHandler);
