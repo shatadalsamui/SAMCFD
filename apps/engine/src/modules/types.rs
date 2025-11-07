@@ -106,6 +106,7 @@ pub struct Trade {
     pub take_profit_percent: Option<f64>,
     pub stop_loss_percent: Option<f64>,
     pub price: Option<f64>,
+    
 }
 
 pub fn order_to_trade(order: &Order) -> Trade {
@@ -169,6 +170,8 @@ pub struct TradeOutcome {
     pub success: Option<bool>,
     pub order_type: Option<OrderType>,
     pub limit_price: Option<f64>,
+    pub updated_balance:Option<f64>,
+    pub updated_holdings:Option<f64>
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

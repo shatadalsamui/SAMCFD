@@ -24,14 +24,18 @@ pub async fn apply_execution(
     let existing_position = engine_state
         .open_trades
         .iter()
-        .find(|(_, t)| t.user_id == user_id && t.asset == asset && (matches!(t.side, Side::Buy) == opposite_is_buy))
+        .find(|(_, t)| {
+            t.user_id == user_id
+                && t.asset == asset
+                && (matches!(t.side, Side::Buy) == opposite_is_buy)
+        })
         .map(|(id, t)| (id.clone(), t.entry_price.unwrap_or(0.0), t.side.clone()));
 
     if let Some((existing_id, entry_price, existing_side)) = existing_position {
         // Close existing position
         let pnl = match side_executed {
-            Side::Buy => (entry_price - price) * quantity * leverage,   // closing short
-            Side::Sell => (price - entry_price) * quantity * leverage,  // closing long
+            Side::Buy => (entry_price - price) * quantity * leverage, // closing short
+            Side::Sell => (price - entry_price) * quantity * leverage, // closing long
         };
 
         if let Some(balance) = engine_state.balances.get_mut(user_id) {
@@ -40,7 +44,10 @@ pub async fn apply_execution(
         println!(
             "Order {} filled. Closing {} position. Entry: {}, Close: {}, PnL: {}",
             order_id,
-            match existing_side { Side::Buy => "long", Side::Sell => "short" },
+            match existing_side {
+                Side::Buy => "long",
+                Side::Sell => "short",
+            },
             entry_price,
             price,
             pnl
@@ -49,7 +56,14 @@ pub async fn apply_execution(
         // Remove closed position - DO NOT re-insert it into open_trades
         // Closed positions should not be monitored for liquidation
         engine_state.open_trades.remove(&existing_id);
-        
+
+        // Get updated values
+        let updated_balance = engine_state.balances.get(user_id).copied();
+        let updated_holdings = engine_state
+            .holdings
+            .get(&(user_id.to_string(), asset.to_string()))
+            .copied();
+
         // Publish TradeOutcome for closed position
         let trade_outcome = crate::modules::types::TradeOutcome {
             trade_id: order_id.to_string(),
@@ -68,7 +82,13 @@ pub async fn apply_execution(
             reason: None,
             success: Some(true),
             order_type: Some(order_type.clone()),
-            limit_price: if matches!(order_type, OrderType::Limit) { limit_price } else { None },
+            limit_price: if matches!(order_type, OrderType::Limit) {
+                limit_price
+            } else {
+                None
+            },
+            updated_balance,
+            updated_holdings,
         };
         if let Ok(json_string) = serde_json::to_string(&trade_outcome) {
             let _ = tx.send(json_string).await;
@@ -99,11 +119,22 @@ pub async fn apply_execution(
         println!(
             "Order {} filled. Opening new {} position at {}. PnL: 0",
             order_id,
-            match side_executed { Side::Buy => "long", Side::Sell => "short" },
+            match side_executed {
+                Side::Buy => "long",
+                Side::Sell => "short",
+            },
             price
         );
-        engine_state.open_trades.insert(order_id.to_string(), new_trade);
-        
+        engine_state
+            .open_trades
+            .insert(order_id.to_string(), new_trade);
+
+        let updated_balance = engine_state.balances.get(user_id).copied();
+        let updated_holdings = engine_state
+            .holdings
+            .get(&(user_id.to_string(), asset.to_string()))
+            .copied();
+
         // Publish TradeOutcome for new position
         let trade_outcome = crate::modules::types::TradeOutcome {
             trade_id: order_id.to_string(),
@@ -122,11 +153,63 @@ pub async fn apply_execution(
             reason: None,
             success: Some(true),
             order_type: Some(order_type.clone()),
-            limit_price: if matches!(order_type, OrderType::Limit) { limit_price } else { None },
+            limit_price: if matches!(order_type, OrderType::Limit) {
+                limit_price
+            } else {
+                None
+            },
+            updated_balance,
+            updated_holdings,
         };
         if let Ok(json_string) = serde_json::to_string(&trade_outcome) {
             let _ = tx.send(json_string).await;
             println!("Trade outcome published for new position: {}", order_id);
         }
+    }
+}
+
+pub async fn publish_trade_outcome_for_market_order(
+    engine_state: &crate::modules::state::EngineState,
+    order: &Order,
+    entry_price: Option<f64>,
+    close_price: f64,
+    pnl: f64,
+    status: &str,
+    tx: &tokio::sync::mpsc::Sender<String>,
+) {
+    let updated_balance = engine_state.balances.get(&order.user_id).copied();
+    let updated_holdings = engine_state
+        .holdings
+        .get(&(order.user_id.clone(), order.asset.clone()))
+        .copied();
+
+    let trade_outcome = crate::modules::types::TradeOutcome {
+        trade_id: order.id.clone(),
+        user_id: order.user_id.clone(),
+        asset: order.asset.clone(),
+        side: order.side.clone(),
+        quantity: order.quantity,
+        entry_price,
+        close_price: Some(close_price),
+        pnl: Some(pnl),
+        status: Some(status.to_string()),
+        timestamp: Some(order.created_at as i64),
+        margin: Some(order.margin),
+        leverage: Some(order.leverage),
+        slippage: Some(0.0),
+        reason: None,
+        success: Some(true),
+        order_type: Some(order.order_type.clone()),
+        limit_price: if matches!(order.order_type, crate::modules::types::OrderType::Limit) {
+            order.price
+        } else {
+            None
+        },
+        updated_balance,
+        updated_holdings,
+    };
+
+    if let Ok(json_string) = serde_json::to_string(&trade_outcome) {
+        let _ = tx.send(json_string).await;
     }
 }

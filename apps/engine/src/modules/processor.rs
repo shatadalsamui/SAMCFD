@@ -1,5 +1,5 @@
 use crate::kafka::producer;
-use crate::modules::execution::apply_execution;
+use crate::modules::execution::{apply_execution, publish_trade_outcome_for_market_order};
 use crate::modules::order_matching::{add_limit_order, match_market_order};
 use crate::modules::state::OrderBook;
 use crate::modules::state::SharedEngineState;
@@ -20,34 +20,48 @@ pub async fn process_trade_create(
     );
     let mut engine_state = state.lock().await;
 
-    // Validate user balance and deduct margin in its own scope
-    let balance = engine_state.balances.get_mut(&req.user_id);
-    if let Some(balance) = balance {
-        if *balance < req.margin {
-            println!("Insufficient balance for user: {}", req.user_id);
-            // Publish rejection response
-            let mut response_json = serde_json::json!({
-                "userId": req.user_id,
-                "status": "rejected",
-                "reason": "Insufficient balance"
-            });
-            if let Some(ref corr_id) = req.correlation_id {
-                response_json["correlationId"] = serde_json::json!(corr_id);
+    // Validate user balance but defer margin deduction until all checks pass
+    let current_balance = match engine_state.balances.get(&req.user_id) {
+        Some(balance) => *balance,
+        None => {
+            println!(
+                "No balance found for user: {}. Requesting balance...",
+                req.user_id
+            );
+            if let Err(e) = producer::send_balance_request(&req.user_id).await {
+                eprintln!("Failed to send balance request: {:?}", e);
             }
-            let response = response_json.to_string();
-            producer::send_trade_create_response(&req.user_id, &response).await;
+            engine_state
+                .pending_trades
+                .entry(req.user_id.clone())
+                .or_default()
+                .push(req);
             return;
         }
-        *balance -= req.margin;
-    } else {
-        println!(
-            "No balance found for user: {}. Requesting balance...",
-            req.user_id
-        );
-        if let Err(e) = producer::send_balance_request(&req.user_id).await {
-            eprintln!("Failed to send balance request: {:?}", e);
+    };
+
+    if current_balance < req.margin {
+        println!("Insufficient balance for user: {}", req.user_id);
+        let mut response_json = serde_json::json!({
+            "userId": req.user_id,
+            "status": "rejected",
+            "reason": "Insufficient balance"
+        });
+        if let Some(ref corr_id) = req.correlation_id {
+            response_json["correlationId"] = serde_json::json!(corr_id);
         }
-        // Store the pending trade
+        let response = response_json.to_string();
+        producer::send_trade_create_response(&req.user_id, &response).await;
+        return;
+    }
+
+    // Ensure holdings data is loaded before proceeding
+    let holdings_key = (req.user_id.clone(), req.asset.clone());
+    let current_holdings = engine_state.holdings.get(&holdings_key).cloned();
+    if current_holdings.is_none() {
+        if let Err(e) = producer::send_holdings_request(&req.user_id, &req.asset).await {
+            eprintln!("Failed to send holdings request: {:?}", e);
+        }
         engine_state
             .pending_trades
             .entry(req.user_id.clone())
@@ -56,45 +70,30 @@ pub async fn process_trade_create(
         return;
     }
 
-    // Holdings check for SELL orders
+    // Additional holdings validation for SELL orders only
     if matches!(req.side, Side::Sell) {
-        let key = (req.user_id.clone(), req.asset.clone());
         let req_qty = req.quantity.map(|q| q as f64).unwrap_or(0.0);
-        match engine_state.holdings.get(&key) {
-            Some(quantity) if *quantity >= req_qty => {
-                // Sufficient holdings, proceed
+        if current_holdings.unwrap_or(0.0) < req_qty {
+            println!(
+                "Insufficient holdings for user: {} asset: {}",
+                req.user_id, req.asset
+            );
+            let mut response_json = serde_json::json!({
+                "userId": req.user_id,
+                "status": "rejected",
+                "reason": "Insufficient holdings"
+            });
+            if let Some(ref corr_id) = req.correlation_id {
+                response_json["correlationId"] = serde_json::json!(corr_id);
             }
-            Some(_) => {
-                println!(
-                    "Insufficient holdings for user: {} asset: {}",
-                    req.user_id, req.asset
-                );
-                // Publish rejection response
-                let mut response_json = serde_json::json!({
-                    "userId": req.user_id,
-                    "status": "rejected",
-                    "reason": "Insufficient holdings"
-                });
-                if let Some(ref corr_id) = req.correlation_id {
-                    response_json["correlationId"] = serde_json::json!(corr_id);
-                }
-                let response = response_json.to_string();
-                producer::send_trade_create_response(&req.user_id, &response).await;
-                return;
-            }
-            None => {
-                // Send holdings request and store trade as pending
-                if let Err(e) = producer::send_holdings_request(&req.user_id, &req.asset).await {
-                    eprintln!("Failed to send holdings request: {:?}", e);
-                }
-                engine_state
-                    .pending_trades
-                    .entry(req.user_id.clone())
-                    .or_default()
-                    .push(req);
-                return;
-            }
+            let response = response_json.to_string();
+            producer::send_trade_create_response(&req.user_id, &response).await;
+            return;
         }
+    }
+
+    if let Some(balance) = engine_state.balances.get_mut(&req.user_id) {
+        *balance -= req.margin;
     }
 
     // Create the order and assign orderId only after all checks pass
@@ -190,29 +189,16 @@ pub async fn process_trade_create(
                         // Remove the closed position - DO NOT re-insert
                         engine_state.open_trades.remove(&existing_id);
 
-                        // Send TradeOutcome to mpsc channel for the CLOSED position
-                        let trade_outcome = crate::modules::types::TradeOutcome {
-                            trade_id: order.id.clone(),
-                            user_id: order.user_id.clone(),
-                            asset: order.asset.clone(),
-                            side: order.side.clone(),
-                            quantity: order.quantity,
-                            entry_price: Some(entry_price),
-                            close_price: Some(close_price),
-                            pnl: Some(pnl),
-                            status: Some("closed".to_string()),
-                            timestamp: Some(order.created_at as i64),
-                            margin: Some(order.margin),
-                            leverage: Some(order.leverage),
-                            slippage: Some(0.0),
-                            reason: None,
-                            success: Some(true),
-                            order_type: Some(order.order_type.clone()),
-                            limit_price: if matches!(order.order_type, OrderType::Limit) { order.price } else { None },
-                        };
-                        if let Ok(json_string) = serde_json::to_string(&trade_outcome) {
-                            let _ = tx.send(json_string).await;
-                        }
+                        publish_trade_outcome_for_market_order(
+                            &engine_state,
+                            &order,
+                            Some(entry_price),
+                            close_price,
+                            pnl,
+                            "closed",
+                            &tx,
+                        )
+                        .await;
                     } else {
                         // Opening a new BUY position
                         let mut trade = order_to_trade(&order);
@@ -229,29 +215,17 @@ pub async fn process_trade_create(
                         );
 
                         engine_state.open_trades.insert(order.id.clone(), trade);
-                        // Send TradeOutcome to mpsc channel
-                        let trade_outcome = crate::modules::types::TradeOutcome {
-                            trade_id: order.id.clone(),
-                            user_id: order.user_id.clone(),
-                            asset: order.asset.clone(),
-                            side: order.side.clone(),
-                            quantity: order.quantity,
-                            entry_price: order.price,
-                            close_price: Some(close_price),
-                            pnl: Some(pnl),
-                            status: Some("filled".to_string()),
-                            timestamp: Some(order.created_at as i64),
-                            margin: Some(order.margin),
-                            leverage: Some(order.leverage),
-                            slippage: Some(0.0),
-                            reason: None,
-                            success: Some(true),
-                            order_type: Some(order.order_type.clone()),
-                            limit_price: if matches!(order.order_type, OrderType::Limit) { order.price } else { None },
-                        };
-                        if let Ok(json_string) = serde_json::to_string(&trade_outcome) {
-                            let _ = tx.send(json_string).await;
-                        }
+
+                        publish_trade_outcome_for_market_order(
+                            &engine_state,
+                            &order,
+                            Some(close_price),
+                            close_price,
+                            0.0,
+                            "filled",
+                            &tx,
+                        )
+                        .await;
                     }
 
                     // Also apply executions for each matched counterparty (they sold)
@@ -268,11 +242,16 @@ pub async fn process_trade_create(
                             ct.leverage,
                             &ct.id,
                             &ct.order_type,
-                            if matches!(ct.order_type, OrderType::Limit) { ct.price } else { None },
+                            if matches!(ct.order_type, OrderType::Limit) {
+                                ct.price
+                            } else {
+                                None
+                            },
                             ct.margin,
                             ct.created_at,
                             &tx,
-                        ).await;
+                        )
+                        .await;
                     }
                 } else if order.filled < order.quantity {
                     order.status = OrderStatus::PartiallyFilled;
@@ -280,7 +259,8 @@ pub async fn process_trade_create(
             }
             OrderType::Limit => {
                 if order.filled < order.quantity {
-                    let (filled, close_price, _matched_trades) = add_limit_order(&mut order, &mut order_book.sell, &tx).await;
+                    let (filled, close_price, _matched_trades) =
+                        add_limit_order(&mut order, &mut order_book.sell, &tx, &engine_state).await;
                     if filled > 0.0 {
                         if filled == order.quantity {
                             order.price = Some(close_price);
@@ -297,11 +277,16 @@ pub async fn process_trade_create(
                                 order.leverage,
                                 &order.id,
                                 &order.order_type,
-                                if matches!(order.order_type, OrderType::Limit) { order.price } else { None },
+                                if matches!(order.order_type, OrderType::Limit) {
+                                    order.price
+                                } else {
+                                    None
+                                },
                                 order.margin,
                                 order.created_at,
                                 &tx,
-                            ).await;
+                            )
+                            .await;
                         } else {
                             order.status = OrderStatus::PartiallyFilled;
                             // Apply execution for filled portion
@@ -315,11 +300,16 @@ pub async fn process_trade_create(
                                 order.leverage,
                                 &order.id,
                                 &order.order_type,
-                                if matches!(order.order_type, OrderType::Limit) { order.price } else { None },
+                                if matches!(order.order_type, OrderType::Limit) {
+                                    order.price
+                                } else {
+                                    None
+                                },
                                 order.margin,
                                 order.created_at,
                                 &tx,
-                            ).await;
+                            )
+                            .await;
                         }
                     }
                     if order.filled < order.quantity {
@@ -383,29 +373,16 @@ pub async fn process_trade_create(
                         // Remove the closed position - DO NOT re-insert
                         engine_state.open_trades.remove(&existing_id);
 
-                        // Send TradeOutcome for the CLOSED position
-                        let trade_outcome = crate::modules::types::TradeOutcome {
-                            trade_id: order.id.clone(),
-                            user_id: order.user_id.clone(),
-                            asset: order.asset.clone(),
-                            side: order.side.clone(),
-                            quantity: order.quantity,
-                            entry_price: Some(entry_price),
-                            close_price: Some(close_price),
-                            pnl: Some(pnl),
-                            status: Some("closed".to_string()),
-                            timestamp: Some(order.created_at as i64),
-                            margin: Some(order.margin),
-                            leverage: Some(order.leverage),
-                            slippage: Some(0.0),
-                            reason: None,
-                            success: Some(true),
-                            order_type: Some(order.order_type.clone()),
-                            limit_price: if matches!(order.order_type, OrderType::Limit) { order.price } else { None },
-                        };
-                        if let Ok(json_string) = serde_json::to_string(&trade_outcome) {
-                            let _ = tx.send(json_string).await;
-                        }
+                        publish_trade_outcome_for_market_order(
+                            &engine_state,
+                            &order,
+                            Some(entry_price),
+                            close_price,
+                            pnl,
+                            "closed",
+                            &tx,
+                        )
+                        .await;
                     } else {
                         // Opening a new SELL position
                         let mut trade = order_to_trade(&order);
@@ -422,30 +399,17 @@ pub async fn process_trade_create(
                         );
 
                         engine_state.open_trades.insert(order.id.clone(), trade);
-                        
-                        // Send TradeOutcome to mpsc channel
-                        let trade_outcome = crate::modules::types::TradeOutcome {
-                            trade_id: order.id.clone(),
-                            user_id: order.user_id.clone(),
-                            asset: order.asset.clone(),
-                            side: order.side.clone(),
-                            quantity: order.quantity,
-                            entry_price: Some(close_price),
-                            close_price: Some(close_price),
-                            pnl: Some(pnl),
-                            status: Some("filled".to_string()),
-                            timestamp: Some(order.created_at as i64),
-                            margin: Some(order.margin),
-                            leverage: Some(order.leverage),
-                            slippage: Some(0.0),
-                            reason: None,
-                            success: Some(true),
-                            order_type: Some(order.order_type.clone()),
-                            limit_price: if matches!(order.order_type, OrderType::Limit) { order.price } else { None },
-                        };
-                        if let Ok(json_string) = serde_json::to_string(&trade_outcome) {
-                            let _ = tx.send(json_string).await;
-                        }
+
+                        publish_trade_outcome_for_market_order(
+                            &engine_state,
+                            &order,
+                            Some(close_price),
+                            close_price,
+                            0.0,
+                            "filled",
+                            &tx,
+                        )
+                        .await;
                     }
 
                     // Also apply executions for each matched counterparty (they bought)
@@ -462,11 +426,16 @@ pub async fn process_trade_create(
                             ct.leverage,
                             &ct.id,
                             &ct.order_type,
-                            if matches!(ct.order_type, OrderType::Limit) { ct.price } else { None },
+                            if matches!(ct.order_type, OrderType::Limit) {
+                                ct.price
+                            } else {
+                                None
+                            },
                             ct.margin,
                             ct.created_at,
                             &tx,
-                        ).await;
+                        )
+                        .await;
                     }
                 } else if order.filled < order.quantity {
                     order.status = OrderStatus::PartiallyFilled;
@@ -474,7 +443,8 @@ pub async fn process_trade_create(
             }
             OrderType::Limit => {
                 if order.filled < order.quantity {
-                    let (filled, close_price, _matched_trades) = add_limit_order(&mut order, &mut order_book.buy, &tx).await;
+                    let (filled, close_price, _matched_trades) =
+                        add_limit_order(&mut order, &mut order_book.buy, &tx, &engine_state).await;
                     if filled > 0.0 {
                         if filled == order.quantity {
                             order.price = Some(close_price);
@@ -491,11 +461,16 @@ pub async fn process_trade_create(
                                 order.leverage,
                                 &order.id,
                                 &order.order_type,
-                                if matches!(order.order_type, OrderType::Limit) { order.price } else { None },
+                                if matches!(order.order_type, OrderType::Limit) {
+                                    order.price
+                                } else {
+                                    None
+                                },
                                 order.margin,
                                 order.created_at,
                                 &tx,
-                            ).await;
+                            )
+                            .await;
                         } else {
                             order.status = OrderStatus::PartiallyFilled;
                             // Apply execution for filled portion
@@ -509,11 +484,16 @@ pub async fn process_trade_create(
                                 order.leverage,
                                 &order.id,
                                 &order.order_type,
-                                if matches!(order.order_type, OrderType::Limit) { order.price } else { None },
+                                if matches!(order.order_type, OrderType::Limit) {
+                                    order.price
+                                } else {
+                                    None
+                                },
                                 order.margin,
                                 order.created_at,
                                 &tx,
-                            ).await;
+                            )
+                            .await;
                         }
                     }
                     if order.filled < order.quantity {

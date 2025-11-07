@@ -67,6 +67,7 @@ pub async fn add_limit_order(
     order: &mut Order,
     opposite_book: &mut BTreeMap<OrderedFloat<f64>, VecDeque<Order>>,
     tx: &tokio::sync::mpsc::Sender<String>,
+    engine_state: &crate::modules::state::EngineState,
 ) -> (f64, f64, Vec<Order>) {
     let matched_trades = match_market_order(order.clone(), opposite_book);
 
@@ -94,6 +95,10 @@ pub async fn add_limit_order(
     // Publish TradeOutcome for each matched counterparty
     for ct in &matched_trades {
         let exec_price = ct.price.unwrap_or(close_price);
+
+        let updated_balance = engine_state.balances.get(&ct.user_id).copied();
+        let updated_holdings = engine_state.holdings.get(&(ct.user_id.clone(), ct.asset.clone())).copied();
+
         let trade_outcome = crate::modules::types::TradeOutcome {
             trade_id: ct.id.clone(),
             user_id: ct.user_id.clone(),
@@ -112,6 +117,8 @@ pub async fn add_limit_order(
             success: Some(true),
             order_type: Some(ct.order_type.clone()),
             limit_price: if matches!(ct.order_type, crate::modules::types::OrderType::Limit) { ct.price } else { None },
+            updated_balance,
+            updated_holdings
         };
         if let Ok(json_string) = serde_json::to_string(&trade_outcome) {
             let _ = tx.send(json_string).await;

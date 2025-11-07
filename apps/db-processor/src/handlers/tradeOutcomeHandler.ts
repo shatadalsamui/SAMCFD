@@ -4,6 +4,13 @@ import Decimal from "decimal.js";
 
 export const tradeOutcomeHandler = async (message: any) => {
     try {
+
+        console.log("RAW Trade Outcome Message Received:");
+        console.log(JSON.stringify(message, null, 2));
+        console.log("Updated Balance:", message.updatedBalance);
+        console.log("Updated Holdings:", message.updatedHoldings);
+        console.log("-------------------------------------------------------------------");
+
         const {
             tradeId,
             userId,
@@ -26,8 +33,8 @@ export const tradeOutcomeHandler = async (message: any) => {
         // Map side to Prisma enum
         const prismaSide = typeof side === "string"
             ? side.toUpperCase() === "BUY" ? "BUY"
-            : side.toUpperCase() === "SELL" ? "SELL"
-            : undefined
+                : side.toUpperCase() === "SELL" ? "SELL"
+                    : undefined
             : undefined;
 
         // Map status to Prisma enum
@@ -38,8 +45,8 @@ export const tradeOutcomeHandler = async (message: any) => {
         // Map orderType to Prisma enum
         const prismaOrderType = typeof orderType === "string"
             ? orderType.toUpperCase() === "MARKET" ? "MARKET"
-            : orderType.toUpperCase() === "LIMIT" ? "LIMIT"
-            : undefined
+                : orderType.toUpperCase() === "LIMIT" ? "LIMIT"
+                    : undefined
             : undefined;
 
         if (!tradeId || !userId || !asset || !prismaSide || !quantity || !entryPrice || !prismaStatus) {
