@@ -1,4 +1,4 @@
-use crate::modules::types::{Trade, Side};
+use crate::modules::types::{Side, Trade};
 
 /// Calculate absolute PnL for a trade execution
 /// Buy: (close - entry) * qty * leverage

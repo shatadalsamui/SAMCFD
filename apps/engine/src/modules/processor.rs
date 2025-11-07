@@ -1,5 +1,6 @@
 use crate::kafka::producer;
 use crate::modules::execution::{apply_execution, publish_trade_outcome_for_market_order};
+use crate::modules::netting::apply_netting;
 use crate::modules::order_matching::{add_limit_order, match_market_order};
 use crate::modules::state::OrderBook;
 use crate::modules::state::SharedEngineState;
@@ -20,7 +21,7 @@ pub async fn process_trade_create(
     );
     let mut engine_state = state.lock().await;
 
-    // Validate user balance but defer margin deduction until all checks pass
+    // Validate user balance - NO deduction yet
     let current_balance = match engine_state.balances.get(&req.user_id) {
         Some(balance) => *balance,
         None => {
@@ -40,21 +41,6 @@ pub async fn process_trade_create(
         }
     };
 
-    if current_balance < req.margin {
-        println!("Insufficient balance for user: {}", req.user_id);
-        let mut response_json = serde_json::json!({
-            "userId": req.user_id,
-            "status": "rejected",
-            "reason": "Insufficient balance"
-        });
-        if let Some(ref corr_id) = req.correlation_id {
-            response_json["correlationId"] = serde_json::json!(corr_id);
-        }
-        let response = response_json.to_string();
-        producer::send_trade_create_response(&req.user_id, &response).await;
-        return;
-    }
-
     // Ensure holdings data is loaded before proceeding
     let holdings_key = (req.user_id.clone(), req.asset.clone());
     let current_holdings = engine_state.holdings.get(&holdings_key).cloned();
@@ -70,30 +56,107 @@ pub async fn process_trade_create(
         return;
     }
 
-    // Additional holdings validation for SELL orders only
-    if matches!(req.side, Side::Sell) {
-        let req_qty = req.quantity.map(|q| q as f64).unwrap_or(0.0);
-        if current_holdings.unwrap_or(0.0) < req_qty {
-            println!(
-                "Insufficient holdings for user: {} asset: {}",
-                req.user_id, req.asset
-            );
-            let mut response_json = serde_json::json!({
-                "userId": req.user_id,
-                "status": "rejected",
-                "reason": "Insufficient holdings"
-            });
-            if let Some(ref corr_id) = req.correlation_id {
-                response_json["correlationId"] = serde_json::json!(corr_id);
-            }
-            let response = response_json.to_string();
-            producer::send_trade_create_response(&req.user_id, &response).await;
-            return;
+    let current_holdings = current_holdings.unwrap_or(0.0);
+    let req_qty = req.quantity.map(|q| q as f64).unwrap_or(0.0);
+
+    // Determine overlap with existing opposite positions (closing) and net new exposure (opening)
+    let opposite_side = match req.side {
+        Side::Buy => Side::Sell,
+        Side::Sell => Side::Buy,
+    };
+    let total_opposite_qty: f64 = engine_state
+        .open_trades
+        .values()
+        .filter(|trade| {
+            trade.user_id == req.user_id && trade.asset == req.asset && trade.side == opposite_side
+        })
+        .map(|trade| trade.quantity)
+        .sum();
+
+    let closing_qty = req_qty.min(total_opposite_qty);
+    let opening_qty = (req_qty - closing_qty).max(0.0);
+
+    // Determine if this is a spot trade (pure inventory sale without leverage)
+    let is_spot_sell = matches!(req.side, Side::Sell)
+        && closing_qty == 0.0
+        && current_holdings >= req_qty
+        && req.margin == 0.0;
+
+    let opening_margin_total = if req_qty > 0.0 {
+        req.margin * (opening_qty / req_qty)
+    } else {
+        0.0
+    };
+
+    let mut remaining_closing_qty = closing_qty;
+    let mut remaining_opening_qty = opening_qty;
+    let margin_per_new_unit = if opening_qty > 0.0 {
+        opening_margin_total / opening_qty
+    } else {
+        0.0
+    };
+
+    let mut allocate_margin_for_execution = |exec_qty: f64| -> f64 {
+        let closing_used = remaining_closing_qty.min(exec_qty);
+        remaining_closing_qty -= closing_used;
+        let opening_used = ((exec_qty - closing_used).max(0.0)).min(remaining_opening_qty);
+        remaining_opening_qty -= opening_used;
+        opening_used * margin_per_new_unit
+    };
+
+    // Calculate required funds
+    let required_funds = if is_spot_sell {
+        0.0 // Spot sell: no margin needed, user already owns the asset
+    } else {
+        opening_margin_total // Leveraged trade: margin only for net-new exposure
+    };
+
+    // Validate balance
+    if current_balance < required_funds {
+        println!("Insufficient balance for user: {}", req.user_id);
+        let mut response_json = serde_json::json!({
+            "userId": req.user_id,
+            "status": "rejected",
+            "reason": "Insufficient balance"
+        });
+        if let Some(ref corr_id) = req.correlation_id {
+            response_json["correlationId"] = serde_json::json!(corr_id);
         }
+        let response = response_json.to_string();
+        producer::send_trade_create_response(&req.user_id, &response).await;
+        return;
     }
 
+    // Additional holdings validation for SELL orders
+    if matches!(req.side, Side::Sell) && current_holdings < req_qty {
+        println!(
+            "Insufficient holdings for user: {} asset: {}",
+            req.user_id, req.asset
+        );
+        let mut response_json = serde_json::json!({
+            "userId": req.user_id,
+            "status": "rejected",
+            "reason": "Insufficient holdings"
+        });
+        if let Some(ref corr_id) = req.correlation_id {
+            response_json["correlationId"] = serde_json::json!(corr_id);
+        }
+        let response = response_json.to_string();
+        producer::send_trade_create_response(&req.user_id, &response).await;
+        return;
+    }
+
+    // NOW deduct funds (margin or nothing for spot sell)
     if let Some(balance) = engine_state.balances.get_mut(&req.user_id) {
-        *balance -= req.margin;
+        *balance -= required_funds;
+    }
+
+    // For spot sell, decrease holdings immediately
+    let is_spot_sell_flag = is_spot_sell; // Store for later use
+    if is_spot_sell {
+        if let Some(holdings) = engine_state.holdings.get_mut(&holdings_key) {
+            *holdings -= req_qty;
+        }
     }
 
     // Create the order and assign orderId only after all checks pass
@@ -105,10 +168,10 @@ pub async fn process_trade_create(
         side: req.side.clone(),
         order_type: req.order_type.unwrap_or(OrderType::Market),
         price: req.limit_price,
-        quantity: req.quantity.map(|q| q as f64).unwrap_or(0.0),
+        quantity: req_qty,
         filled: 0.0,
         status: OrderStatus::Open,
-        margin: req.margin,
+        margin: opening_margin_total,
         leverage: req.leverage,
         stop_loss_percent: req.stop_loss_percent,
         take_profit_percent: req.take_profit_percent,
@@ -165,7 +228,7 @@ pub async fn process_trade_create(
                     let close_price = matched_trades.last().and_then(|t| t.price).unwrap_or(0.0);
                     order.price = Some(close_price);
 
-                    // Check if user has an open SELL position to close
+                    // Netting logic for Buy order
                     let existing_position_data = engine_state
                         .open_trades
                         .iter()
@@ -174,48 +237,106 @@ pub async fn process_trade_create(
                                 && trade.asset == order.asset
                                 && matches!(trade.side, Side::Sell)
                         })
-                        .map(|(id, trade)| (id.clone(), trade.entry_price.unwrap_or(0.0)));
+                        .map(|(id, trade)| {
+                            (
+                                id.clone(),
+                                trade.entry_price.unwrap_or(0.0),
+                                trade.quantity,
+                                trade.margin,
+                            )
+                        });
 
-                    if let Some((existing_id, entry_price)) = existing_position_data {
-                        // Closing an existing SELL position
-                        let pnl = (entry_price - close_price) * order.quantity * order.leverage;
+                    if let Some((existing_id, entry_price, existing_qty, existing_margin)) =
+                        existing_position_data
+                    {
+                        let close_qty = order.quantity.min(existing_qty);
+                        let margin_return_ratio = if existing_qty > 0.0 {
+                            close_qty / existing_qty
+                        } else {
+                            0.0
+                        };
+                        let pnl = (entry_price - close_price) * close_qty * order.leverage;
+                        let returned_margin = existing_margin * margin_return_ratio;
 
+                        // Update balance with PnL and returned margin
                         if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
                             *balance += pnl;
+                            *balance += returned_margin;
                         }
+
                         println!("Order {} filled. Closing short position. Entry: {}, Close: {}, PnL: {}", 
                             order.id, entry_price, close_price, pnl);
 
-                        // Remove the closed position - DO NOT re-insert
-                        engine_state.open_trades.remove(&existing_id);
+                        // Update existing trade (quantity + margin)
+                        if let Some(trade) = engine_state.open_trades.get_mut(&existing_id) {
+                            trade.quantity -= close_qty;
+                            let remaining_ratio = if existing_qty > 0.0 {
+                                (existing_qty - close_qty).max(0.0) / existing_qty
+                            } else {
+                                0.0
+                            };
+                            trade.margin = existing_margin * remaining_ratio;
+                            if trade.quantity <= 0.0 {
+                                engine_state.open_trades.remove(&existing_id);
+                            }
+                        }
 
-                        publish_trade_outcome_for_market_order(
-                            &engine_state,
-                            &order,
-                            Some(entry_price),
-                            close_price,
-                            pnl,
-                            "closed",
-                            &tx,
-                        )
-                        .await;
+                        let remaining_qty = order.quantity - close_qty;
+                        let remaining_margin = if remaining_qty > 0.0 {
+                            order.margin
+                        } else {
+                            0.0
+                        };
+                        if remaining_qty > 0.0 {
+                            // Open new long position
+                            let mut trade = order_to_trade(&order);
+                            trade.quantity = remaining_qty;
+                            trade.entry_price = Some(close_price);
+                            trade.close_price = Some(close_price);
+                            trade.margin = remaining_margin;
+                            let holdings_key = (order.user_id.clone(), order.asset.clone());
+                            *engine_state.holdings.entry(holdings_key).or_insert(0.0) +=
+                                remaining_qty;
+                            println!(
+                                "Order {} filled. Opening new long position at {}. PnL: 0",
+                                order.id, close_price
+                            );
+                            engine_state.open_trades.insert(order.id.clone(), trade);
+                            publish_trade_outcome_for_market_order(
+                                &engine_state,
+                                &order,
+                                Some(close_price),
+                                close_price,
+                                0.0,
+                                "filled",
+                                &tx,
+                            )
+                            .await;
+                        } else {
+                            publish_trade_outcome_for_market_order(
+                                &engine_state,
+                                &order,
+                                Some(entry_price),
+                                close_price,
+                                pnl,
+                                "closed",
+                                &tx,
+                            )
+                            .await;
+                        }
                     } else {
                         // Opening a new BUY position
                         let mut trade = order_to_trade(&order);
                         trade.entry_price = Some(close_price);
                         trade.close_price = Some(close_price);
-
-                        let pnl = 0.0;
-                        if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
-                            *balance += pnl;
-                        }
+                        // Update holdings for new long position
+                        let holdings_key = (order.user_id.clone(), order.asset.clone());
+                        *engine_state.holdings.entry(holdings_key).or_insert(0.0) += order.quantity;
                         println!(
-                            "Order {} filled. Opening new long position at {}. PnL: {}",
-                            order.id, close_price, pnl
+                            "Order {} filled. Opening new long position at {}. PnL: 0",
+                            order.id, close_price
                         );
-
                         engine_state.open_trades.insert(order.id.clone(), trade);
-
                         publish_trade_outcome_for_market_order(
                             &engine_state,
                             &order,
@@ -231,7 +352,7 @@ pub async fn process_trade_create(
                     // Also apply executions for each matched counterparty (they sold)
                     for ct in matched_trades {
                         let exec_price = ct.price.unwrap_or(close_price);
-                        let exec_qty = ct.quantity.min(order.quantity);
+                        let exec_qty = ct.quantity;
                         apply_execution(
                             &mut engine_state,
                             &ct.user_id,
@@ -259,36 +380,43 @@ pub async fn process_trade_create(
             }
             OrderType::Limit => {
                 if order.filled < order.quantity {
-                    let (filled, close_price, _matched_trades) =
+                    let (filled, close_price, matched_trades) =
                         add_limit_order(&mut order, &mut order_book.sell, &tx, &engine_state).await;
                     if filled > 0.0 {
+                        for ct in matched_trades {
+                            let exec_price = ct.price.unwrap_or(close_price);
+                            let exec_qty = ct.quantity;
+                            apply_execution(
+                                &mut engine_state,
+                                &ct.user_id,
+                                &ct.asset,
+                                &Side::Sell,
+                                exec_qty,
+                                exec_price,
+                                ct.leverage,
+                                &ct.id,
+                                &ct.order_type,
+                                if matches!(ct.order_type, OrderType::Limit) {
+                                    ct.price
+                                } else {
+                                    None
+                                },
+                                ct.margin,
+                                ct.created_at,
+                                &tx,
+                            )
+                            .await;
+                        }
+
                         if filled == order.quantity {
                             order.price = Some(close_price);
                             order.status = OrderStatus::Filled;
 
-                            // Apply execution for this user (they bought)
-                            apply_execution(
-                                &mut engine_state,
-                                &order.user_id,
-                                &order.asset,
-                                &Side::Buy,
-                                order.quantity,
-                                close_price,
-                                order.leverage,
-                                &order.id,
-                                &order.order_type,
-                                if matches!(order.order_type, OrderType::Limit) {
-                                    order.price
-                                } else {
-                                    None
-                                },
-                                order.margin,
-                                order.created_at,
-                                &tx,
-                            )
-                            .await;
+                            // Apply netting
+                            apply_netting(&mut engine_state, &order, close_price, false, &tx).await;
                         } else {
                             order.status = OrderStatus::PartiallyFilled;
+                            let executed_margin = allocate_margin_for_execution(filled);
                             // Apply execution for filled portion
                             apply_execution(
                                 &mut engine_state,
@@ -305,11 +433,12 @@ pub async fn process_trade_create(
                                 } else {
                                     None
                                 },
-                                order.margin,
+                                executed_margin,
                                 order.created_at,
                                 &tx,
                             )
                             .await;
+                            order.margin = (remaining_opening_qty * margin_per_new_unit).max(0.0);
                         }
                     }
                     if order.filled < order.quantity {
@@ -347,7 +476,7 @@ pub async fn process_trade_create(
                     let close_price = matched_trades.last().and_then(|t| t.price).unwrap_or(0.0);
                     order.price = Some(close_price);
 
-                    // Check if user has an open BUY position to close
+                    // Netting logic for Sell order
                     let existing_position_data = engine_state
                         .open_trades
                         .iter()
@@ -356,49 +485,152 @@ pub async fn process_trade_create(
                                 && trade.asset == order.asset
                                 && matches!(trade.side, Side::Buy)
                         })
-                        .map(|(id, trade)| (id.clone(), trade.entry_price.unwrap_or(0.0)));
+                        .map(|(id, trade)| {
+                            (
+                                id.clone(),
+                                trade.entry_price.unwrap_or(0.0),
+                                trade.quantity,
+                                trade.margin,
+                            )
+                        });
 
-                    if let Some((existing_id, entry_price)) = existing_position_data {
-                        // Closing an existing BUY position
-                        let pnl = (close_price - entry_price) * order.quantity * order.leverage;
+                    if let Some((existing_id, entry_price, existing_qty, existing_margin)) =
+                        existing_position_data
+                    {
+                        let close_qty = order.quantity.min(existing_qty);
+                        let margin_return_ratio = if existing_qty > 0.0 {
+                            close_qty / existing_qty
+                        } else {
+                            0.0
+                        };
+                        let pnl = (close_price - entry_price) * close_qty * order.leverage;
+                        let returned_margin = existing_margin * margin_return_ratio;
 
+                        // Update balance with PnL and returned margin
                         if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
                             *balance += pnl;
+                            *balance += returned_margin;
                         }
+
+                        // Decrease holdings when closing long
+                        let holdings_key = (order.user_id.clone(), order.asset.clone());
+                        if let Some(holdings) = engine_state.holdings.get_mut(&holdings_key) {
+                            *holdings -= close_qty;
+                        }
+
                         println!(
                             "Order {} filled. Closing long position. Entry: {}, Close: {}, PnL: {}",
                             order.id, entry_price, close_price, pnl
                         );
 
-                        // Remove the closed position - DO NOT re-insert
-                        engine_state.open_trades.remove(&existing_id);
-
-                        publish_trade_outcome_for_market_order(
-                            &engine_state,
-                            &order,
-                            Some(entry_price),
-                            close_price,
-                            pnl,
-                            "closed",
-                            &tx,
-                        )
-                        .await;
-                    } else {
-                        // Opening a new SELL position
-                        let mut trade = order_to_trade(&order);
-                        trade.entry_price = Some(close_price);
-                        trade.close_price = Some(close_price);
-
-                        let pnl = 0.0;
-                        if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
-                            *balance += pnl;
+                        // Update existing trade
+                        if let Some(trade) = engine_state.open_trades.get_mut(&existing_id) {
+                            trade.quantity -= close_qty;
+                            let remaining_ratio = if existing_qty > 0.0 {
+                                (existing_qty - close_qty).max(0.0) / existing_qty
+                            } else {
+                                0.0
+                            };
+                            trade.margin = existing_margin * remaining_ratio;
+                            if trade.quantity <= 0.0 {
+                                engine_state.open_trades.remove(&existing_id);
+                            }
                         }
-                        println!(
-                            "Order {} filled. Opening new short position at {}. PnL: {}",
-                            order.id, close_price, pnl
-                        );
 
-                        engine_state.open_trades.insert(order.id.clone(), trade);
+                        let remaining_qty = order.quantity - close_qty;
+                        let remaining_margin = if remaining_qty > 0.0 {
+                            order.margin
+                        } else {
+                            0.0
+                        };
+                        if remaining_qty > 0.0 {
+                            // Check if this was a spot sell for remaining
+                            let was_spot_sell = is_spot_sell_flag;
+                            if was_spot_sell {
+                                // Increase balance by sale proceeds for remaining
+                                if let Some(balance) = engine_state.balances.get_mut(&order.user_id)
+                                {
+                                    *balance += close_price * remaining_qty;
+                                }
+                                println!(
+                                    "Spot sell order {} filled at price {}. Balance increased by {}",
+                                    order.id, close_price, close_price * remaining_qty
+                                );
+                                publish_trade_outcome_for_market_order(
+                                    &engine_state,
+                                    &order,
+                                    Some(close_price),
+                                    close_price,
+                                    close_price * remaining_qty,
+                                    "filled",
+                                    &tx,
+                                )
+                                .await;
+                            } else {
+                                // Open new short position
+                                let mut trade = order_to_trade(&order);
+                                trade.quantity = remaining_qty;
+                                trade.entry_price = Some(close_price);
+                                trade.close_price = Some(close_price);
+                                trade.margin = remaining_margin;
+                                println!(
+                                    "Order {} filled. Opening new short position at {}. PnL: 0",
+                                    order.id, close_price
+                                );
+                                engine_state.open_trades.insert(order.id.clone(), trade);
+                                publish_trade_outcome_for_market_order(
+                                    &engine_state,
+                                    &order,
+                                    Some(close_price),
+                                    close_price,
+                                    0.0,
+                                    "filled",
+                                    &tx,
+                                )
+                                .await;
+                            }
+                        } else {
+                            publish_trade_outcome_for_market_order(
+                                &engine_state,
+                                &order,
+                                Some(entry_price),
+                                close_price,
+                                pnl,
+                                "closed",
+                                &tx,
+                            )
+                            .await;
+                        }
+                    } else {
+                        // Opening a new SELL position (short) OR completing a spot sell
+                        let was_spot_sell = is_spot_sell_flag;
+
+                        if was_spot_sell {
+                            // Increase balance by sale proceeds
+                            if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
+                                *balance += close_price * order.quantity;
+                            }
+                            println!(
+                                "Spot sell order {} filled at price {}. Balance increased by {}",
+                                order.id,
+                                close_price,
+                                close_price * order.quantity
+                            );
+                        } else {
+                            // Leveraged short - holdings will be tracked in open_trades
+                            println!(
+                                "Order {} filled. Opening new short position at {}. PnL: 0",
+                                order.id, close_price
+                            );
+                        }
+
+                        // Only add to open_trades if it's a leveraged short (not spot sell)
+                        if !was_spot_sell {
+                            let mut trade = order_to_trade(&order);
+                            trade.entry_price = Some(close_price);
+                            trade.close_price = Some(close_price);
+                            engine_state.open_trades.insert(order.id.clone(), trade);
+                        }
 
                         publish_trade_outcome_for_market_order(
                             &engine_state,
@@ -415,7 +647,7 @@ pub async fn process_trade_create(
                     // Also apply executions for each matched counterparty (they bought)
                     for ct in matched_trades {
                         let exec_price = ct.price.unwrap_or(close_price);
-                        let exec_qty = ct.quantity.min(order.quantity);
+                        let exec_qty = ct.quantity;
                         apply_execution(
                             &mut engine_state,
                             &ct.user_id,
@@ -443,36 +675,51 @@ pub async fn process_trade_create(
             }
             OrderType::Limit => {
                 if order.filled < order.quantity {
-                    let (filled, close_price, _matched_trades) =
+                    let (filled, close_price, matched_trades) =
                         add_limit_order(&mut order, &mut order_book.buy, &tx, &engine_state).await;
                     if filled > 0.0 {
+                        for ct in matched_trades {
+                            let exec_price = ct.price.unwrap_or(close_price);
+                            let exec_qty = ct.quantity;
+                            apply_execution(
+                                &mut engine_state,
+                                &ct.user_id,
+                                &ct.asset,
+                                &Side::Buy,
+                                exec_qty,
+                                exec_price,
+                                ct.leverage,
+                                &ct.id,
+                                &ct.order_type,
+                                if matches!(ct.order_type, OrderType::Limit) {
+                                    ct.price
+                                } else {
+                                    None
+                                },
+                                ct.margin,
+                                ct.created_at,
+                                &tx,
+                            )
+                            .await;
+                        }
+
                         if filled == order.quantity {
                             order.price = Some(close_price);
                             order.status = OrderStatus::Filled;
 
-                            // Apply execution for this user (they sold)
-                            apply_execution(
+                            // Apply netting
+                            let is_spot_sell = is_spot_sell_flag;
+                            apply_netting(
                                 &mut engine_state,
-                                &order.user_id,
-                                &order.asset,
-                                &Side::Sell,
-                                order.quantity,
+                                &order,
                                 close_price,
-                                order.leverage,
-                                &order.id,
-                                &order.order_type,
-                                if matches!(order.order_type, OrderType::Limit) {
-                                    order.price
-                                } else {
-                                    None
-                                },
-                                order.margin,
-                                order.created_at,
+                                is_spot_sell,
                                 &tx,
                             )
                             .await;
                         } else {
                             order.status = OrderStatus::PartiallyFilled;
+                            let executed_margin = allocate_margin_for_execution(filled);
                             // Apply execution for filled portion
                             apply_execution(
                                 &mut engine_state,
@@ -489,11 +736,12 @@ pub async fn process_trade_create(
                                 } else {
                                     None
                                 },
-                                order.margin,
+                                executed_margin,
                                 order.created_at,
                                 &tx,
                             )
                             .await;
+                            order.margin = (remaining_opening_qty * margin_per_new_unit).max(0.0);
                         }
                     }
                     if order.filled < order.quantity {

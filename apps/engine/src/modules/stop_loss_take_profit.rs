@@ -1,15 +1,18 @@
-use crate::modules::pnl::calculate_pnl;
 use crate::modules::liquidations::{check_liquidation, liquidate_trade};
+use crate::modules::pnl::calculate_pnl;
 use crate::modules::state::SharedEngineState;
 use crate::modules::types::Side;
 
-pub async fn monitor_stop_loss_take_profit(state: SharedEngineState, tx: tokio::sync::mpsc::Sender<String>) {
+pub async fn monitor_stop_loss_take_profit(
+    state: SharedEngineState,
+    tx: tokio::sync::mpsc::Sender<String>,
+) {
     let mut engine_state = state.lock().await;
 
     // Iterate through all open trades
     let mut to_close = Vec::new(); // Track trades to close
     let mut to_liquidate = Vec::new(); // Track trades to liquidate
-    
+
     for (order_id, trade) in engine_state.open_trades.iter() {
         if let Some(latest_price) = engine_state.prices.get(&trade.asset) {
             // Check for liquidation first

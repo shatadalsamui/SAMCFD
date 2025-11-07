@@ -29,18 +29,54 @@ pub async fn apply_execution(
                 && t.asset == asset
                 && (matches!(t.side, Side::Buy) == opposite_is_buy)
         })
-        .map(|(id, t)| (id.clone(), t.entry_price.unwrap_or(0.0), t.side.clone()));
+        .map(|(id, t)| {
+            (
+                id.clone(),
+                t.entry_price.unwrap_or(0.0),
+                t.quantity,
+                t.margin,
+                t.side.clone(),
+                t.leverage,
+            )
+        });
 
-    if let Some((existing_id, entry_price, existing_side)) = existing_position {
-        // Close existing position
+    let holdings_key = (user_id.to_string(), asset.to_string());
+
+    if let Some((
+        existing_id,
+        entry_price,
+        existing_qty,
+        existing_margin,
+        existing_side,
+        existing_leverage,
+    )) = existing_position
+    {
+        let close_qty = quantity.min(existing_qty);
         let pnl = match side_executed {
-            Side::Buy => (entry_price - price) * quantity * leverage, // closing short
-            Side::Sell => (price - entry_price) * quantity * leverage, // closing long
+            Side::Buy => (entry_price - price) * close_qty * existing_leverage, // closing short
+            Side::Sell => (price - entry_price) * close_qty * existing_leverage, // closing long
         };
 
+        let margin_return_ratio = if existing_qty > 0.0 {
+            close_qty / existing_qty
+        } else {
+            0.0
+        };
+        let margin_return = existing_margin * margin_return_ratio;
+
+        // Update balance with PnL and return margin for closed portion
         if let Some(balance) = engine_state.balances.get_mut(user_id) {
             *balance += pnl;
+            *balance += margin_return;
         }
+
+        // Update holdings only when closing longs
+        if matches!(existing_side, Side::Buy) {
+            if let Some(holdings) = engine_state.holdings.get_mut(&holdings_key) {
+                *holdings -= close_qty;
+            }
+        }
+
         println!(
             "Order {} filled. Closing {} position. Entry: {}, Close: {}, PnL: {}",
             order_id,
@@ -53,30 +89,104 @@ pub async fn apply_execution(
             pnl
         );
 
-        // Remove closed position - DO NOT re-insert it into open_trades
-        // Closed positions should not be monitored for liquidation
-        engine_state.open_trades.remove(&existing_id);
+        // Update existing trade quantity
+        if let Some(trade) = engine_state.open_trades.get_mut(&existing_id) {
+            trade.quantity -= close_qty;
+            let remaining_ratio = if existing_qty > 0.0 {
+                (existing_qty - close_qty).max(0.0) / existing_qty
+            } else {
+                0.0
+            };
+            trade.margin = existing_margin * remaining_ratio;
+            if trade.quantity <= 0.0 {
+                engine_state.open_trades.remove(&existing_id);
+            }
+        }
 
-        // Get updated values
-        let updated_balance = engine_state.balances.get(user_id).copied();
-        let updated_holdings = engine_state
-            .holdings
-            .get(&(user_id.to_string(), asset.to_string()))
-            .copied();
+        let remaining_qty = quantity - close_qty;
+        let remaining_margin = if remaining_qty > 0.0 { margin } else { 0.0 };
+        if remaining_qty > 0.0 {
+            // Open new opposite position
+            let new_trade = crate::modules::types::Trade {
+                id: order_id.to_string(),
+                user_id: user_id.to_string(),
+                asset: asset.to_string(),
+                side: side_executed.clone(),
+                margin: remaining_margin,
+                leverage,
+                quantity: remaining_qty,
+                entry_price: Some(price),
+                close_price: Some(price),
+                pnl: Some(0.0),
+                status: Some("filled".to_string()),
+                created_at: Some(created_at),
+                closed_at: None,
+                take_profit_percent: None,
+                stop_loss_percent: None,
+                price: limit_price,
+            };
+            engine_state
+                .open_trades
+                .insert(order_id.to_string(), new_trade);
 
-        // Publish TradeOutcome for closed position
+            // Update holdings for remaining
+            match side_executed {
+                Side::Buy => {
+                    *engine_state
+                        .holdings
+                        .entry(holdings_key.clone())
+                        .or_insert(0.0) += remaining_qty
+                }
+                Side::Sell => {}
+            }
+
+            // Publish for remaining
+            let trade_outcome = crate::modules::types::TradeOutcome {
+                trade_id: order_id.to_string(),
+                user_id: user_id.to_string(),
+                asset: asset.to_string(),
+                side: side_executed.clone(),
+                quantity: remaining_qty,
+                entry_price: Some(price),
+                close_price: Some(price),
+                pnl: Some(0.0),
+                status: Some("filled".to_string()),
+                timestamp: Some(created_at),
+                margin: Some(remaining_margin),
+                leverage: Some(leverage),
+                slippage: Some(0.0),
+                reason: None,
+                success: Some(true),
+                order_type: Some(order_type.clone()),
+                limit_price: if matches!(order_type, OrderType::Limit) {
+                    limit_price
+                } else {
+                    None
+                },
+                updated_balance: engine_state.balances.get(user_id).copied(),
+                updated_holdings: engine_state
+                    .holdings
+                    .get(&(user_id.to_string(), asset.to_string()))
+                    .copied(),
+            };
+            if let Ok(json_string) = serde_json::to_string(&trade_outcome) {
+                let _ = tx.send(json_string).await;
+            }
+        }
+
+        // Publish for closed portion
         let trade_outcome = crate::modules::types::TradeOutcome {
             trade_id: order_id.to_string(),
             user_id: user_id.to_string(),
             asset: asset.to_string(),
             side: side_executed.clone(),
-            quantity,
+            quantity: close_qty,
             entry_price: Some(entry_price),
             close_price: Some(price),
             pnl: Some(pnl),
             status: Some("closed".to_string()),
             timestamp: Some(created_at),
-            margin: Some(margin),
+            margin: Some(margin_return),
             leverage: Some(leverage),
             slippage: Some(0.0),
             reason: None,
@@ -87,15 +197,22 @@ pub async fn apply_execution(
             } else {
                 None
             },
-            updated_balance,
-            updated_holdings,
+            updated_balance: engine_state.balances.get(user_id).copied(),
+            updated_holdings: engine_state
+                .holdings
+                .get(&(user_id.to_string(), asset.to_string()))
+                .copied(),
         };
         if let Ok(json_string) = serde_json::to_string(&trade_outcome) {
             let _ = tx.send(json_string).await;
             println!("Trade outcome published for closed position: {}", order_id);
         }
-        // The closed position is now removed from open_trades and won't be liquidated
     } else {
+        // Check if this is a spot sell (user already had holdings that were decreased)
+        // For SELL side, if holdings were already decreased in processor, this is a spot sell
+        // We can detect this by checking if the user has no open short position
+        let is_spot_sell = matches!(side_executed, Side::Sell) && margin == 0.0;
+
         // Open new position
         let mut new_trade = order_to_trade(&Order {
             id: order_id.to_string(),
@@ -107,7 +224,7 @@ pub async fn apply_execution(
             quantity,
             filled: quantity,
             status: OrderStatus::Filled,
-            margin: 0.0,
+            margin,
             leverage,
             stop_loss_percent: None,
             take_profit_percent: None,
@@ -116,18 +233,49 @@ pub async fn apply_execution(
         });
         new_trade.entry_price = Some(price);
         new_trade.close_price = Some(price);
-        println!(
-            "Order {} filled. Opening new {} position at {}. PnL: 0",
-            order_id,
-            match side_executed {
-                Side::Buy => "long",
-                Side::Sell => "short",
-            },
-            price
-        );
-        engine_state
-            .open_trades
-            .insert(order_id.to_string(), new_trade);
+
+        // Update holdings and balance for new position
+        match side_executed {
+            Side::Buy => {
+                // New long position - increase holdings
+                *engine_state
+                    .holdings
+                    .entry(holdings_key.clone())
+                    .or_insert(0.0) += quantity;
+                println!(
+                    "Order {} filled. Opening new long position at {}. PnL: 0",
+                    order_id, price
+                );
+            }
+            Side::Sell => {
+                // Check if holdings were already decreased (spot sell)
+                // For spot sell, just credit the sale proceeds
+                // Holdings were already decreased in processor.rs
+                if is_spot_sell {
+                    // Increase balance by sale proceeds for spot sell
+                    if let Some(balance) = engine_state.balances.get_mut(user_id) {
+                        *balance += price * quantity;
+                    }
+                    println!(
+                        "Spot sell order {} filled at price {}. Balance increased by sale proceeds: {}",
+                        order_id, price, price * quantity
+                    );
+                } else {
+                    // Leveraged short - will be tracked in open_trades
+                    println!(
+                        "Order {} filled. Opening new short position at {}. PnL: 0",
+                        order_id, price
+                    );
+                }
+            }
+        }
+
+        // Only add to open_trades if it's a leveraged position (not spot sell)
+        if !is_spot_sell || matches!(side_executed, Side::Buy) {
+            engine_state
+                .open_trades
+                .insert(order_id.to_string(), new_trade);
+        }
 
         let updated_balance = engine_state.balances.get(user_id).copied();
         let updated_holdings = engine_state
@@ -177,7 +325,12 @@ pub async fn publish_trade_outcome_for_market_order(
     status: &str,
     tx: &tokio::sync::mpsc::Sender<String>,
 ) {
-    let updated_balance = engine_state.balances.get(&order.user_id).copied();
+    let current_balance = engine_state.balances.get(&order.user_id).copied();
+    let updated_balance = if status == "closed" {
+        current_balance // Already updated in netting.rs with PnL + returned margin
+    } else {
+        current_balance.map(|b| b + pnl) // For new positions (PnL=0)
+    };
     let updated_holdings = engine_state
         .holdings
         .get(&(order.user_id.clone(), order.asset.clone()))

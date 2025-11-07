@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Side {
     Buy,
@@ -106,7 +106,6 @@ pub struct Trade {
     pub take_profit_percent: Option<f64>,
     pub stop_loss_percent: Option<f64>,
     pub price: Option<f64>,
-    
 }
 
 pub fn order_to_trade(order: &Order) -> Trade {
@@ -139,7 +138,7 @@ pub fn trade_to_order(trade: &Trade) -> Order {
         order_type: OrderType::Market, // Defaulting to Market
         price: trade.price,
         quantity: trade.quantity,
-        filled: 0.0, // Assuming not relevant when converting back for PnL
+        filled: 0.0,               // Assuming not relevant when converting back for PnL
         status: OrderStatus::Open, // Assuming a default status
         margin: trade.margin,
         leverage: trade.leverage,
@@ -170,8 +169,8 @@ pub struct TradeOutcome {
     pub success: Option<bool>,
     pub order_type: Option<OrderType>,
     pub limit_price: Option<f64>,
-    pub updated_balance:Option<f64>,
-    pub updated_holdings:Option<f64>
+    pub updated_balance: Option<f64>,
+    pub updated_holdings: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

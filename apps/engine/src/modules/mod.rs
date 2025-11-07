@@ -1,9 +1,10 @@
+pub mod execution;
 pub mod liquidations;
+pub mod netting;
 pub mod order_matching;
 pub mod pnl;
+pub mod price_updater;
 pub mod processor;
 pub mod state;
 pub mod stop_loss_take_profit;
 pub mod types;
-pub mod price_updater;
-pub mod execution;

@@ -1,7 +1,6 @@
 use crate::modules::pnl::calculate_pnl; // Updated import for pnl
 use crate::modules::state::EngineState; // Updated import for state
 
-
 /// Check if liquidation is needed for a trade
 use crate::modules::types::Trade;
 
@@ -20,11 +19,7 @@ pub fn check_liquidation(trade: &Trade, latest_price: f64) -> bool {
 }
 
 /// Liquidate a trade
-pub fn liquidate_trade(
-    state: &mut EngineState,
-    order_id: &str,
-    latest_price: f64,
-) {
+pub fn liquidate_trade(state: &mut EngineState, order_id: &str, latest_price: f64) {
     if let Some(mut trade) = state.open_trades.remove(order_id) {
         // Set close_price for accurate PnL
         trade.close_price = Some(latest_price);

@@ -18,7 +18,7 @@
     "leverage": 1,
     "quantity": 1.0,
     "orderType": "limit",
-    "limitPrice": 101000,
+    "limitPrice": 110000,
     "slippage": 0
   }
   ```
@@ -43,7 +43,7 @@
     "leverage": 1,
     "quantity": 1.0,
     "orderType": "limit",
-    "limitPrice": 100000,
+    "limitPrice": 109000,
     "slippage": 0
   }
   ```
