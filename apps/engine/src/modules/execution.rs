@@ -70,10 +70,11 @@ pub async fn apply_execution(
             *balance += margin_return;
         }
 
-        // Update holdings only when closing longs
-        if matches!(existing_side, Side::Buy) {
-            if let Some(holdings) = engine_state.holdings.get_mut(&holdings_key) {
-                *holdings -= close_qty;
+        // Update holdings ledger to reflect the closed exposure
+        if let Some(holdings) = engine_state.holdings.get_mut(&holdings_key) {
+            match existing_side {
+                Side::Buy => *holdings -= close_qty,
+                Side::Sell => *holdings += close_qty,
             }
         }
 
@@ -137,7 +138,12 @@ pub async fn apply_execution(
                         .entry(holdings_key.clone())
                         .or_insert(0.0) += remaining_qty
                 }
-                Side::Sell => {}
+                Side::Sell => {
+                    *engine_state
+                        .holdings
+                        .entry(holdings_key.clone())
+                        .or_insert(0.0) -= remaining_qty
+                }
             }
 
             // Publish for remaining
@@ -208,11 +214,6 @@ pub async fn apply_execution(
             println!("Trade outcome published for closed position: {}", order_id);
         }
     } else {
-        // Check if this is a spot sell (user already had holdings that were decreased)
-        // For SELL side, if holdings were already decreased in processor, this is a spot sell
-        // We can detect this by checking if the user has no open short position
-        let is_spot_sell = matches!(side_executed, Side::Sell) && margin == 0.0;
-
         // Open new position
         let mut new_trade = order_to_trade(&Order {
             id: order_id.to_string(),
@@ -248,34 +249,20 @@ pub async fn apply_execution(
                 );
             }
             Side::Sell => {
-                // Check if holdings were already decreased (spot sell)
-                // For spot sell, just credit the sale proceeds
-                // Holdings were already decreased in processor.rs
-                if is_spot_sell {
-                    // Increase balance by sale proceeds for spot sell
-                    if let Some(balance) = engine_state.balances.get_mut(user_id) {
-                        *balance += price * quantity;
-                    }
-                    println!(
-                        "Spot sell order {} filled at price {}. Balance increased by sale proceeds: {}",
-                        order_id, price, price * quantity
-                    );
-                } else {
-                    // Leveraged short - will be tracked in open_trades
-                    println!(
-                        "Order {} filled. Opening new short position at {}. PnL: 0",
-                        order_id, price
-                    );
-                }
+                *engine_state
+                    .holdings
+                    .entry(holdings_key.clone())
+                    .or_insert(0.0) -= quantity;
+                println!(
+                    "Order {} filled. Opening new short position at {}. PnL: 0",
+                    order_id, price
+                );
             }
         }
 
-        // Only add to open_trades if it's a leveraged position (not spot sell)
-        if !is_spot_sell || matches!(side_executed, Side::Buy) {
-            engine_state
-                .open_trades
-                .insert(order_id.to_string(), new_trade);
-        }
+        engine_state
+            .open_trades
+            .insert(order_id.to_string(), new_trade);
 
         let updated_balance = engine_state.balances.get(user_id).copied();
         let updated_holdings = engine_state
