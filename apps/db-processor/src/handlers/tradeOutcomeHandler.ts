@@ -106,11 +106,54 @@ export const tradeOutcomeHandler = async (message: any) => {
             createPayload.user = { connect: { id: userId } };
         }
 
-        await prisma.trade.upsert({
-            where: { id: tradeId },
-            update: updatePayload,
-            create: createPayload,
-        });
+        const prismaOperations: Parameters<typeof prisma.$transaction>[0] = [
+            prisma.trade.upsert({
+                where: { id: tradeId },
+                update: updatePayload,
+                create: createPayload,
+            }),
+        ];
+
+        if (userId && message.updatedBalance !== undefined && message.updatedBalance !== null) {
+            const updatedBalance = new Decimal(message.updatedBalance);
+            if (!updatedBalance.isNaN()) {
+                prismaOperations.push(
+                    prisma.balance.upsert({
+                        where: { userId },
+                        update: { amount: updatedBalance.toNumber() },
+                        create: { userId, amount: updatedBalance.toNumber() },
+                    })
+                );
+                console.log(`Queued balance update for user ${userId}: ${updatedBalance.toString()}`);
+            }
+        }
+
+        if (
+            userId &&
+            asset &&
+            message.updatedHoldings !== undefined &&
+            message.updatedHoldings !== null
+        ) {
+            const updatedHoldings = new Decimal(message.updatedHoldings);
+            if (!updatedHoldings.isNaN()) {
+                prismaOperations.push(
+                    prisma.holdings.upsert({
+                        where: { userId_asset: { userId, asset } },
+                        update: { quantity: updatedHoldings.toNumber() },
+                        create: {
+                            userId,
+                            asset,
+                            quantity: updatedHoldings.toNumber(),
+                        },
+                    })
+                );
+                console.log(
+                    `Queued holdings update for user ${userId} asset ${asset}: ${updatedHoldings.toString()}`
+                );
+            }
+        }
+
+        await prisma.$transaction(prismaOperations);
 
         console.log(`Trade outcome processed for tradeId: ${tradeId}`);
     } catch (error: any) {
