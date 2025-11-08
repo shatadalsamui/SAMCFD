@@ -1,5 +1,5 @@
 import { db as prisma } from "@repo/db";
-import { TradeStatus } from "@repo/db/generated/prisma";
+import { Prisma, TradeStatus } from "@repo/db/generated/prisma";
 import Decimal from "decimal.js";
 
 export const tradeOutcomeHandler = async (message: any) => {
@@ -106,7 +106,7 @@ export const tradeOutcomeHandler = async (message: any) => {
             createPayload.user = { connect: { id: userId } };
         }
 
-        const prismaOperations: Parameters<typeof prisma.$transaction>[0] = [
+        const prismaOperations: Prisma.PrismaPromise<unknown>[] = [
             prisma.trade.upsert({
                 where: { id: tradeId },
                 update: updatePayload,
