@@ -26,9 +26,12 @@ pub async fn apply_netting(
                 && trade.asset == order.asset
                 && trade.side == opposite_side
         })
-        .map(|(id, trade)| (id.clone(), trade.clone()));
+        .map(|(id, trade)| {
+            let locked_margin = engine_state.get_locked_margin_or(id, trade.margin);
+            (id.clone(), trade.clone(), locked_margin)
+        });
 
-    if let Some((existing_id, mut existing_trade)) = existing_position_data {
+    if let Some((existing_id, mut existing_trade, locked_margin)) = existing_position_data {
         let close_qty = order.quantity.min(existing_trade.quantity);
         existing_trade.close_price = Some(close_price);
         let existing_total_qty = existing_trade.quantity;
@@ -38,7 +41,7 @@ pub async fn apply_netting(
             0
         };
         let margin_return = if existing_total_qty > 0 {
-            existing_trade.margin * close_qty / existing_total_qty
+            locked_margin * close_qty / existing_total_qty
         } else {
             0
         };
@@ -54,8 +57,8 @@ pub async fn apply_netting(
         {
             let entry = engine_state
                 .holdings
-                    .entry(holdings_key.clone())
-                    .or_insert(0);
+                .entry(holdings_key.clone())
+                .or_insert(0);
             match existing_trade.side {
                 Side::Buy => *entry -= close_qty,
                 Side::Sell => *entry += close_qty,
@@ -70,30 +73,35 @@ pub async fn apply_netting(
             } else {
                 "short"
             },
-                existing_trade.entry_price.unwrap_or(0),
+            existing_trade.entry_price.unwrap_or(0),
             close_price,
             pnl
         );
 
         // Update existing trade
+        let mut updated_state: Option<(i64, i64)> = None;
         if let Some(trade) = engine_state.open_trades.get_mut(&existing_id) {
             trade.quantity -= close_qty;
-            if existing_total_qty > 0 {
-                trade.margin = existing_trade.margin * trade.quantity / existing_total_qty;
+            let new_quantity = trade.quantity;
+            let new_margin = if existing_total_qty > 0 {
+                locked_margin * new_quantity / existing_total_qty
             } else {
-                trade.margin = 0;
-            }
-            if trade.quantity <= 0 {
+                0
+            };
+            trade.margin = new_margin;
+            updated_state = Some((new_quantity, new_margin));
+        }
+        if let Some((new_quantity, new_margin)) = updated_state {
+            if new_quantity <= 0 {
                 engine_state.open_trades.remove(&existing_id);
+                engine_state.release_locked_margin(&existing_id);
+            } else {
+                engine_state.set_locked_margin(&existing_id, new_margin);
             }
         }
 
         let remaining_qty = order.quantity - close_qty;
-        let remaining_margin = if remaining_qty > 0 {
-            order.margin
-        } else {
-            0
-        };
+        let remaining_margin = if remaining_qty > 0 { order.margin } else { 0 };
         if remaining_qty > 0 {
             // Open new position for the net new exposure
             let mut trade = order_to_trade(order);
@@ -113,7 +121,9 @@ pub async fn apply_netting(
                     *engine_state.holdings.entry(holdings_key).or_insert(0) -= remaining_qty
                 }
             }
+            let margin_to_record = trade.margin;
             engine_state.open_trades.insert(order.id.clone(), trade);
+            engine_state.set_locked_margin(&order.id, margin_to_record);
             publish_trade_outcome_for_market_order(
                 engine_state,
                 order,
@@ -158,7 +168,9 @@ pub async fn apply_netting(
                 );
             }
         }
+        let margin_to_record = trade.margin;
         engine_state.open_trades.insert(order.id.clone(), trade);
+        engine_state.set_locked_margin(&order.id, margin_to_record);
         publish_trade_outcome_for_market_order(
             engine_state,
             order,

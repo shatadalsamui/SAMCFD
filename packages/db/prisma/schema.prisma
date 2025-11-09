@@ -80,6 +80,7 @@ model Trade {
 
   // collateral / execution
   margin   BigInt // stored in smallest unit integer
+  lockedMargin BigInt? // current locked collateral for this trade (None once released)
   leverage Int
   slippage Int
   quantity BigInt?

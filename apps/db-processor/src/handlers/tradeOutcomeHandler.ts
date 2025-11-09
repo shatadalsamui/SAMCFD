@@ -82,6 +82,10 @@ export const tradeOutcomeHandler = async (message: any) => {
         const parsedPnl = parseBigIntField(pnl, "pnl");
         const parsedMargin = parseBigIntField(margin, "margin") ?? 0n;
         const parsedLimitPrice = parseBigIntField(limitPrice, "limitPrice");
+        const parsedLockedMargin = parseBigIntField(
+            message.lockedMargin ?? message.locked_margin,
+            "lockedMargin"
+        );
         const parsedStopLossPercent = parseIntField(message.stopLossPercent ?? message.stop_loss_percent);
         const parsedTakeProfitPercent = parseIntField(message.takeProfitPercent ?? message.take_profit_percent);
 
@@ -106,6 +110,9 @@ export const tradeOutcomeHandler = async (message: any) => {
             leverage: parsedLeverage,
             slippage: parsedSlippage,
         };
+        if (parsedLockedMargin !== undefined) {
+            updatePayload.lockedMargin = parsedLockedMargin;
+        }
         if (prismaOrderType) {
             updatePayload.orderType = prismaOrderType;
         }
@@ -137,6 +144,9 @@ export const tradeOutcomeHandler = async (message: any) => {
             leverage: parsedLeverage,
             slippage: parsedSlippage,
         };
+        if (parsedLockedMargin !== undefined) {
+            createPayload.lockedMargin = parsedLockedMargin;
+        }
         if (prismaOrderType) {
             createPayload.orderType = prismaOrderType;
         }

@@ -27,7 +27,9 @@ pub async fn handle_price_update(payload: &str, state: SharedEngineState) {
         Ok(price_update) => {
             if let Some(asset) = price_update["asset"].as_str() {
                 let price_opt = price_update["price"].as_i64().or_else(|| {
-                    price_update["price"].as_str().and_then(|raw| raw.parse::<i64>().ok())
+                    price_update["price"]
+                        .as_str()
+                        .and_then(|raw| raw.parse::<i64>().ok())
                 });
 
                 if let Some(price) = price_opt {

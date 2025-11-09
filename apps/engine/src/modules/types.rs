@@ -44,7 +44,7 @@ pub struct CreateTradeRequest {
     pub user_id: String,
     pub correlation_id: Option<String>, // For request-response matching
     pub asset: String,
-    pub side: Side,  // "buy" | "sell"
+    pub side: Side, // "buy" | "sell"
     pub margin: i64,
     pub leverage: i64,
     pub slippage: Option<i64>,
@@ -138,7 +138,7 @@ pub fn trade_to_order(trade: &Trade) -> Order {
         order_type: OrderType::Market, // Defaulting to Market
         price: trade.price,
         quantity: trade.quantity,
-        filled: 0,               // Assuming not relevant when converting back for PnL
+        filled: 0,                 // Assuming not relevant when converting back for PnL
         status: OrderStatus::Open, // Assuming a default status
         margin: trade.margin,
         leverage: trade.leverage,
@@ -171,6 +171,7 @@ pub struct TradeOutcome {
     pub limit_price: Option<i64>,
     pub updated_balance: Option<i64>,
     pub updated_holdings: Option<i64>,
+    pub locked_margin: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

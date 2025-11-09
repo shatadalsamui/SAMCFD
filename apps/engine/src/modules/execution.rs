@@ -30,11 +30,12 @@ pub async fn apply_execution(
                 && (matches!(t.side, Side::Buy) == opposite_is_buy)
         })
         .map(|(id, t)| {
+            let locked_margin = engine_state.get_locked_margin_or(id, t.margin);
             (
                 id.clone(),
                 t.entry_price.unwrap_or(0),
                 t.quantity,
-                t.margin,
+                locked_margin,
                 t.side.clone(),
                 t.leverage,
             )
@@ -90,15 +91,25 @@ pub async fn apply_execution(
         );
 
         // Update existing trade quantity
+        let mut updated_trade_state: Option<(i64, i64)> = None;
         if let Some(trade) = engine_state.open_trades.get_mut(&existing_id) {
             trade.quantity -= close_qty;
-            if existing_qty > 0 {
-                trade.margin = existing_margin * trade.quantity / existing_qty;
+            let new_quantity = trade.quantity;
+            let new_margin = if existing_qty > 0 {
+                existing_margin * new_quantity / existing_qty
             } else {
-                trade.margin = 0;
-            }
-            if trade.quantity <= 0 {
+                0
+            };
+            trade.margin = new_margin;
+            updated_trade_state = Some((new_quantity, new_margin));
+        }
+
+        if let Some((new_quantity, new_margin)) = updated_trade_state {
+            if new_quantity <= 0 {
                 engine_state.open_trades.remove(&existing_id);
+                engine_state.release_locked_margin(&existing_id);
+            } else {
+                engine_state.set_locked_margin(&existing_id, new_margin);
             }
         }
 
@@ -127,6 +138,7 @@ pub async fn apply_execution(
             engine_state
                 .open_trades
                 .insert(order_id.to_string(), new_trade);
+            engine_state.set_locked_margin(order_id, remaining_margin);
 
             // Update holdings for remaining
             match side_executed {
@@ -172,6 +184,7 @@ pub async fn apply_execution(
                     .holdings
                     .get(&(user_id.to_string(), asset.to_string()))
                     .copied(),
+                locked_margin: engine_state.locked_margins.get(order_id).copied(),
             };
             if let Ok(json_string) = serde_json::to_string(&trade_outcome) {
                 let _ = tx.send(json_string).await;
@@ -206,6 +219,13 @@ pub async fn apply_execution(
                 .holdings
                 .get(&(user_id.to_string(), asset.to_string()))
                 .copied(),
+            locked_margin: Some(
+                engine_state
+                    .locked_margins
+                    .get(order_id)
+                    .copied()
+                    .unwrap_or(0),
+            ),
         };
         if let Ok(json_string) = serde_json::to_string(&trade_outcome) {
             let _ = tx.send(json_string).await;
@@ -261,12 +281,14 @@ pub async fn apply_execution(
         engine_state
             .open_trades
             .insert(order_id.to_string(), new_trade);
+        engine_state.set_locked_margin(order_id, margin);
 
         let updated_balance = engine_state.balances.get(user_id).copied();
         let updated_holdings = engine_state
             .holdings
             .get(&(user_id.to_string(), asset.to_string()))
             .copied();
+        let locked_margin = engine_state.locked_margins.get(order_id).copied();
 
         // Publish TradeOutcome for new position
         let trade_outcome = crate::modules::types::TradeOutcome {
@@ -293,6 +315,7 @@ pub async fn apply_execution(
             },
             updated_balance,
             updated_holdings,
+            locked_margin,
         };
         if let Ok(json_string) = serde_json::to_string(&trade_outcome) {
             let _ = tx.send(json_string).await;
@@ -320,6 +343,13 @@ pub async fn publish_trade_outcome_for_market_order(
         .holdings
         .get(&(order.user_id.clone(), order.asset.clone()))
         .copied();
+    let locked_margin = Some(
+        engine_state
+            .locked_margins
+            .get(&order.id)
+            .copied()
+            .unwrap_or(0),
+    );
 
     let trade_outcome = crate::modules::types::TradeOutcome {
         trade_id: order.id.clone(),
@@ -334,7 +364,7 @@ pub async fn publish_trade_outcome_for_market_order(
         timestamp: Some(order.created_at as i64),
         margin: Some(order.margin),
         leverage: Some(order.leverage),
-    slippage: Some(0),
+        slippage: Some(0),
         reason: None,
         success: Some(true),
         order_type: Some(order.order_type.clone()),
@@ -345,6 +375,7 @@ pub async fn publish_trade_outcome_for_market_order(
         },
         updated_balance,
         updated_holdings,
+        locked_margin,
     };
 
     if let Ok(json_string) = serde_json::to_string(&trade_outcome) {

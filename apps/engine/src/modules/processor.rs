@@ -132,7 +132,7 @@ pub async fn process_trade_create(
         order_type: req.order_type.unwrap_or(OrderType::Market),
         price: req.limit_price,
         quantity: req_qty,
-    filled: 0,
+        filled: 0,
         status: OrderStatus::Open,
         margin: opening_margin_total,
         leverage: req.leverage,
@@ -242,24 +242,29 @@ pub async fn process_trade_create(
                             order.id, entry_price, close_price, pnl);
 
                         // Update existing trade (quantity + margin)
+                        let mut updated_state: Option<(i64, i64)> = None;
                         if let Some(trade) = engine_state.open_trades.get_mut(&existing_id) {
                             trade.quantity -= close_qty;
-                            if existing_qty > 0 {
-                                trade.margin = existing_margin * trade.quantity / existing_qty;
+                            let new_quantity = trade.quantity;
+                            let new_margin = if existing_qty > 0 {
+                                existing_margin * new_quantity / existing_qty
                             } else {
-                                trade.margin = 0;
-                            }
-                            if trade.quantity <= 0 {
+                                0
+                            };
+                            trade.margin = new_margin;
+                            updated_state = Some((new_quantity, new_margin));
+                        }
+                        if let Some((new_quantity, new_margin)) = updated_state {
+                            if new_quantity <= 0 {
                                 engine_state.open_trades.remove(&existing_id);
+                                engine_state.release_locked_margin(&existing_id);
+                            } else {
+                                engine_state.set_locked_margin(&existing_id, new_margin);
                             }
                         }
 
                         let remaining_qty = order.quantity - close_qty;
-                        let remaining_margin = if remaining_qty > 0 {
-                            order.margin
-                        } else {
-                            0
-                        };
+                        let remaining_margin = if remaining_qty > 0 { order.margin } else { 0 };
                         if remaining_qty > 0 {
                             // Open new long position
                             let mut trade = order_to_trade(&order);
@@ -274,7 +279,9 @@ pub async fn process_trade_create(
                                 "Order {} filled. Opening new long position at {}. PnL: 0",
                                 order.id, close_price
                             );
+                            let margin_to_record = trade.margin;
                             engine_state.open_trades.insert(order.id.clone(), trade);
+                            engine_state.set_locked_margin(&order.id, margin_to_record);
                             publish_trade_outcome_for_market_order(
                                 &engine_state,
                                 &order,
@@ -305,18 +312,20 @@ pub async fn process_trade_create(
                         // Update holdings for new long position
                         let holdings_key = (order.user_id.clone(), order.asset.clone());
                         *engine_state.holdings.entry(holdings_key).or_insert(0) += order.quantity;
-                        
+
                         println!(
                             "Order {} filled. Opening new long position at {}. PnL: 0",
                             order.id, close_price
                         );
+                        let margin_to_record = trade.margin;
                         engine_state.open_trades.insert(order.id.clone(), trade);
+                        engine_state.set_locked_margin(&order.id, margin_to_record);
                         publish_trade_outcome_for_market_order(
                             &engine_state,
                             &order,
                             Some(close_price),
                             close_price,
-                                0,
+                            0,
                             "filled",
                             &tx,
                         )
@@ -497,24 +506,29 @@ pub async fn process_trade_create(
                         );
 
                         // Update existing trade
+                        let mut updated_state: Option<(i64, i64)> = None;
                         if let Some(trade) = engine_state.open_trades.get_mut(&existing_id) {
                             trade.quantity -= close_qty;
-                            if existing_qty > 0 {
-                                trade.margin = existing_margin * trade.quantity / existing_qty;
+                            let new_quantity = trade.quantity;
+                            let new_margin = if existing_qty > 0 {
+                                existing_margin * new_quantity / existing_qty
                             } else {
-                                trade.margin = 0;
-                            }
-                            if trade.quantity <= 0 {
+                                0
+                            };
+                            trade.margin = new_margin;
+                            updated_state = Some((new_quantity, new_margin));
+                        }
+                        if let Some((new_quantity, new_margin)) = updated_state {
+                            if new_quantity <= 0 {
                                 engine_state.open_trades.remove(&existing_id);
+                                engine_state.release_locked_margin(&existing_id);
+                            } else {
+                                engine_state.set_locked_margin(&existing_id, new_margin);
                             }
                         }
 
                         let remaining_qty = order.quantity - close_qty;
-                        let remaining_margin = if remaining_qty > 0 {
-                            order.margin
-                        } else {
-                            0
-                        };
+                        let remaining_margin = if remaining_qty > 0 { order.margin } else { 0 };
                         if remaining_qty > 0 {
                             // Open new short position for the net new exposure
                             let mut trade = order_to_trade(&order);
@@ -529,7 +543,9 @@ pub async fn process_trade_create(
                                 "Order {} filled. Opening new short position at {}. PnL: 0",
                                 order.id, close_price
                             );
+                            let margin_to_record = trade.margin;
                             engine_state.open_trades.insert(order.id.clone(), trade);
+                            engine_state.set_locked_margin(&order.id, margin_to_record);
                             publish_trade_outcome_for_market_order(
                                 &engine_state,
                                 &order,
@@ -563,7 +579,9 @@ pub async fn process_trade_create(
                             "Order {} filled. Opening new short position at {}. PnL: 0",
                             order.id, close_price
                         );
+                        let margin_to_record = trade.margin;
                         engine_state.open_trades.insert(order.id.clone(), trade);
+                        engine_state.set_locked_margin(&order.id, margin_to_record);
 
                         publish_trade_outcome_for_market_order(
                             &engine_state,
