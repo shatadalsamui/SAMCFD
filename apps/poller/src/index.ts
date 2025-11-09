@@ -1,12 +1,13 @@
 import WebSocket from 'ws';
 import { BACKPACK_WS_URL, ASSETS } from './config';
+import Big from 'big.js';
 import { producer } from '@repo/kafka';
 import { PriceUpdateSchema } from '@repo/schemas';
 
 let reconnectDelay = 1000;
 
-const publishPrice = (symbol: string, midPrice: number) => {
-    const payload = { asset: symbol, price: midPrice, timestamp: Date.now() };
+const publishPrice = (symbol: string, midPriceCents: number) => {
+    const payload = { asset: symbol, price: midPriceCents, timestamp: Date.now() };
     const validationResult = PriceUpdateSchema.safeParse(payload);
     if (validationResult.success) {
         producer.send({
@@ -44,31 +45,31 @@ const connect = () => {
         const parsedMsg = JSON.parse(data);
         if (parsedMsg?.data?.e === 'bookTicker') {
             const symbol = parsedMsg.data.s; // e.g., "SOL_USDC"
-            const ask = parseFloat(parsedMsg.data.a);
-            const bid = parseFloat(parsedMsg.data.b);
-            const midPrice = (ask + bid) / 2;
+            const ask = new Big(parsedMsg.data.a);
+            const bid = new Big(parsedMsg.data.b);
+            const midPriceCents = ask.plus(bid).div(2).times(100).round(0, Big.roundHalfUp).toNumber();
 
             // Update the price variables and log
             switch (symbol) {
                 case "SOL_USDC":
                     //console.log(`UPDATE ==> SOL Midpoint Price: $${midPrice}`);
-                    publishPrice(symbol, midPrice);
+                    publishPrice(symbol, midPriceCents);
                     break;
                 case "BTC_USDC":
                     //console.log(`UPDATE ==> BTC Midpoint Price: $${midPrice}`);
-                    publishPrice(symbol, midPrice);
+                    publishPrice(symbol, midPriceCents);
                     break;
                 case "ETH_USDC":
                     //console.log(`UPDATE ==> ETH Midpoint Price: $${midPrice}`);
-                    publishPrice(symbol, midPrice);
+                    publishPrice(symbol, midPriceCents);
                     break;
                 case "DOGE_USDC":
                     //console.log(`UPDATE ==> DOGE Midpoint Price: $${midPrice}`);
-                    publishPrice(symbol, midPrice);
+                    publishPrice(symbol, midPriceCents);
                     break;
                 case "BNB_USDC":
                     //console.log(`UPDATE ==> BNB Midpoint Price: $${midPrice}`);
-                    publishPrice(symbol, midPrice);
+                    publishPrice(symbol, midPriceCents);
                     break;
             }
         }

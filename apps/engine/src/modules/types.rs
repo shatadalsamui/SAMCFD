@@ -45,13 +45,13 @@ pub struct CreateTradeRequest {
     pub correlation_id: Option<String>, // For request-response matching
     pub asset: String,
     pub side: Side,  // "buy" | "sell"
-    pub margin: f64, // smallest unit (cents)
-    pub leverage: f64,
-    pub slippage: Option<f64>,
+    pub margin: i64,
+    pub leverage: i64,
+    pub slippage: Option<i64>,
     pub order_type: Option<OrderType>, // "market" | "limit"
-    pub limit_price: Option<f64>,      // smallest unit
-    pub stop_loss_percent: Option<f64>,
-    pub take_profit_percent: Option<f64>,
+    pub limit_price: Option<i64>,
+    pub stop_loss_percent: Option<i64>,
+    pub take_profit_percent: Option<i64>,
     pub trade_term: Option<String>,
     pub time_in_force: Option<String>,
     pub expiry_timestamp: Option<i64>, // ms since epoch
@@ -67,14 +67,14 @@ pub struct Order {
     pub asset: String,
     pub side: Side,
     pub order_type: OrderType,
-    pub price: Option<f64>, // limit price (None for market)
-    pub quantity: f64,
-    pub filled: f64,
+    pub price: Option<i64>,
+    pub quantity: i64,
+    pub filled: i64,
     pub status: OrderStatus,
-    pub margin: f64,
-    pub leverage: f64,
-    pub stop_loss_percent: Option<f64>,
-    pub take_profit_percent: Option<f64>,
+    pub margin: i64,
+    pub leverage: i64,
+    pub stop_loss_percent: Option<i64>,
+    pub take_profit_percent: Option<i64>,
     pub created_at: i64,
     pub expiry: Option<i64>,
 }
@@ -83,7 +83,7 @@ pub struct Order {
 #[serde(rename_all = "camelCase")]
 pub struct PriceUpdate {
     pub asset: String,
-    pub price: f64, // smallest unit
+    pub price: i64,
     pub timestamp: i64,
 }
 
@@ -94,18 +94,18 @@ pub struct Trade {
     pub user_id: String,
     pub asset: String,
     pub side: Side,
-    pub margin: f64,
-    pub leverage: f64,
-    pub quantity: f64,
-    pub entry_price: Option<f64>,
-    pub close_price: Option<f64>,
-    pub pnl: Option<f64>,
+    pub margin: i64,
+    pub leverage: i64,
+    pub quantity: i64,
+    pub entry_price: Option<i64>,
+    pub close_price: Option<i64>,
+    pub pnl: Option<i64>,
     pub status: Option<String>,
     pub created_at: Option<i64>,
     pub closed_at: Option<i64>,
-    pub take_profit_percent: Option<f64>,
-    pub stop_loss_percent: Option<f64>,
-    pub price: Option<f64>,
+    pub take_profit_percent: Option<i64>,
+    pub stop_loss_percent: Option<i64>,
+    pub price: Option<i64>,
 }
 
 pub fn order_to_trade(order: &Order) -> Trade {
@@ -138,7 +138,7 @@ pub fn trade_to_order(trade: &Trade) -> Order {
         order_type: OrderType::Market, // Defaulting to Market
         price: trade.price,
         quantity: trade.quantity,
-        filled: 0.0,               // Assuming not relevant when converting back for PnL
+        filled: 0,               // Assuming not relevant when converting back for PnL
         status: OrderStatus::Open, // Assuming a default status
         margin: trade.margin,
         leverage: trade.leverage,
@@ -156,21 +156,21 @@ pub struct TradeOutcome {
     pub user_id: String,
     pub asset: String,
     pub side: Side,
-    pub quantity: f64,
-    pub entry_price: Option<f64>,
-    pub close_price: Option<f64>,
-    pub pnl: Option<f64>,
+    pub quantity: i64,
+    pub entry_price: Option<i64>,
+    pub close_price: Option<i64>,
+    pub pnl: Option<i64>,
     pub status: Option<String>, // "opened", "matched", "liquidated", "closed"
     pub timestamp: Option<i64>,
-    pub margin: Option<f64>,
-    pub leverage: Option<f64>,
-    pub slippage: Option<f64>,
+    pub margin: Option<i64>,
+    pub leverage: Option<i64>,
+    pub slippage: Option<i64>,
     pub reason: Option<String>,
     pub success: Option<bool>,
     pub order_type: Option<OrderType>,
-    pub limit_price: Option<f64>,
-    pub updated_balance: Option<f64>,
-    pub updated_holdings: Option<f64>,
+    pub limit_price: Option<i64>,
+    pub updated_balance: Option<i64>,
+    pub updated_holdings: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

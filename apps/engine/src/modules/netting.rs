@@ -10,7 +10,7 @@ use tokio::sync::mpsc::Sender;
 pub async fn apply_netting(
     engine_state: &mut EngineState,
     order: &Order,
-    close_price: f64,
+    close_price: i64,
     tx: &Sender<String>,
 ) {
     let opposite_side = match order.side {
@@ -32,13 +32,16 @@ pub async fn apply_netting(
         let close_qty = order.quantity.min(existing_trade.quantity);
         existing_trade.close_price = Some(close_price);
         let existing_total_qty = existing_trade.quantity;
-        let close_ratio = if existing_total_qty > 0.0 {
-            close_qty / existing_total_qty
+        let pnl = if existing_total_qty > 0 {
+            calculate_pnl(&existing_trade) * close_qty / existing_total_qty
         } else {
-            0.0
+            0
         };
-        let pnl = calculate_pnl(&existing_trade) * close_ratio;
-        let margin_return = existing_trade.margin * close_ratio;
+        let margin_return = if existing_total_qty > 0 {
+            existing_trade.margin * close_qty / existing_total_qty
+        } else {
+            0
+        };
 
         // Update balance with PnL and return margin
         if let Some(balance) = engine_state.balances.get_mut(&order.user_id) {
@@ -51,8 +54,8 @@ pub async fn apply_netting(
         {
             let entry = engine_state
                 .holdings
-                .entry(holdings_key.clone())
-                .or_insert(0.0);
+                    .entry(holdings_key.clone())
+                    .or_insert(0);
             match existing_trade.side {
                 Side::Buy => *entry -= close_qty,
                 Side::Sell => *entry += close_qty,
@@ -67,7 +70,7 @@ pub async fn apply_netting(
             } else {
                 "short"
             },
-            existing_trade.entry_price.unwrap_or(0.0),
+                existing_trade.entry_price.unwrap_or(0),
             close_price,
             pnl
         );
@@ -75,24 +78,23 @@ pub async fn apply_netting(
         // Update existing trade
         if let Some(trade) = engine_state.open_trades.get_mut(&existing_id) {
             trade.quantity -= close_qty;
-            let remaining_ratio = if existing_total_qty > 0.0 {
-                (existing_total_qty - close_qty).max(0.0) / existing_total_qty
+            if existing_total_qty > 0 {
+                trade.margin = existing_trade.margin * trade.quantity / existing_total_qty;
             } else {
-                0.0
-            };
-            trade.margin = existing_trade.margin * remaining_ratio;
-            if trade.quantity <= 0.0 {
+                trade.margin = 0;
+            }
+            if trade.quantity <= 0 {
                 engine_state.open_trades.remove(&existing_id);
             }
         }
 
         let remaining_qty = order.quantity - close_qty;
-        let remaining_margin = if remaining_qty > 0.0 {
+        let remaining_margin = if remaining_qty > 0 {
             order.margin
         } else {
-            0.0
+            0
         };
-        if remaining_qty > 0.0 {
+        if remaining_qty > 0 {
             // Open new position for the net new exposure
             let mut trade = order_to_trade(order);
             trade.quantity = remaining_qty;
@@ -105,10 +107,10 @@ pub async fn apply_netting(
                     *engine_state
                         .holdings
                         .entry(holdings_key.clone())
-                        .or_insert(0.0) += remaining_qty
+                        .or_insert(0) += remaining_qty
                 }
                 Side::Sell => {
-                    *engine_state.holdings.entry(holdings_key).or_insert(0.0) -= remaining_qty
+                    *engine_state.holdings.entry(holdings_key).or_insert(0) -= remaining_qty
                 }
             }
             engine_state.open_trades.insert(order.id.clone(), trade);
@@ -117,7 +119,7 @@ pub async fn apply_netting(
                 order,
                 Some(close_price),
                 close_price,
-                0.0,
+                0,
                 "filled",
                 tx,
             )
@@ -126,7 +128,7 @@ pub async fn apply_netting(
             publish_trade_outcome_for_market_order(
                 engine_state,
                 order,
-                Some(existing_trade.entry_price.unwrap_or(0.0)),
+                Some(existing_trade.entry_price.unwrap_or(0)),
                 close_price,
                 pnl,
                 "closed",
@@ -146,10 +148,10 @@ pub async fn apply_netting(
                 *engine_state
                     .holdings
                     .entry(holdings_key.clone())
-                    .or_insert(0.0) += order.quantity
+                    .or_insert(0) += order.quantity
             }
             Side::Sell => {
-                *engine_state.holdings.entry(holdings_key).or_insert(0.0) -= order.quantity;
+                *engine_state.holdings.entry(holdings_key).or_insert(0) -= order.quantity;
                 println!(
                     "Order {} filled. Opening new short position at {}. PnL: 0",
                     order.id, close_price
@@ -162,7 +164,7 @@ pub async fn apply_netting(
             order,
             Some(close_price),
             close_price,
-            0.0,
+            0,
             "filled",
             tx,
         )

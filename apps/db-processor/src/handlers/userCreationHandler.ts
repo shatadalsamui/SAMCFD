@@ -32,9 +32,9 @@ export const userCreationHandler = async (message: any) => {
                 data: { email, name, password, verified: true },
             });
 
-            // Create the balance for the user with initial $5,000 (500,000 cents)
+            // Create the balance for the user with initial $500,000 (50,000,000 cents)
             await tx.balance.create({
-                data: { userId: user.id, amount: 500000 },
+                data: { userId: user.id, amount: 50000000 },
             });
         });
 

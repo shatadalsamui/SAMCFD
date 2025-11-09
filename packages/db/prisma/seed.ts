@@ -12,10 +12,10 @@ async function main() {
         // Upsert holdings for BTC_USDC
         await prisma.holdings.upsert({
             where: { userId_asset: { userId: user.id, asset: 'BTC_USDC' } },
-            update: { quantity: 1.0 },
-            create: { userId: user.id, asset: 'BTC_USDC', quantity: 1.0 }
+            update: { quantity: BigInt(10) },
+            create: { userId: user.id, asset: 'BTC_USDC', quantity: BigInt(10) }
         });
-        console.log(`Holdings set for user (${user.email}) on BTC_USDC: 1.0`);
+        console.log(`Holdings set for user (${user.email}) on BTC_USDC: 1`);
     }
 }
 

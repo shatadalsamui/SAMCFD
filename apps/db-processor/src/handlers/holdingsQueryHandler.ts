@@ -25,7 +25,29 @@ export const holdingsQueryHandler = async (message: any) => {
         const holdings = await prisma.holdings.findUnique({
             where: { userId_asset: { userId, asset } },
         });
-        const heldQuantity = holdings?.quantity ?? 0;
+        const toBigIntValue = (val: any): bigint => {
+            if (val === undefined || val === null) {
+                return 0n;
+            }
+            if (typeof val === "bigint") {
+                return val;
+            }
+            if (typeof val === "number") {
+                if (!Number.isFinite(val)) {
+                    return 0n;
+                }
+                return BigInt(Math.trunc(val));
+            }
+            try {
+                return BigInt(val);
+            } catch (error) {
+                console.error("Failed to normalize holdings value to BigInt:", val, error);
+                return 0n;
+            }
+        };
+
+        const heldQuantityBigInt = toBigIntValue(holdings?.quantity);
+        const heldQuantity = heldQuantityBigInt.toString();
 
         console.log(`Holdings check for user ${userId}, asset ${asset}: held=${heldQuantity}`);
         await producer.send({
@@ -34,8 +56,8 @@ export const holdingsQueryHandler = async (message: any) => {
                 {
                     key: userId,
                     value: JSON.stringify({
-                        sufficient: Number(heldQuantity) > 0,  // check if user holds any of the asset
-                        heldQuantity: Number(heldQuantity),
+                        sufficient: heldQuantityBigInt > 0n,
+                        heldQuantity,
                         userId,
                         asset,
                     }),

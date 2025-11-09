@@ -12,20 +12,20 @@
   
   ```json
   {
-    "margin": 50000.0,
+    "margin": 5000000,
     "asset": "BTC_USDC",
     "side": "buy",
     "leverage": 1,
     "quantity": 1.0,
     "orderType": "limit",
-    "limitPrice": 110000,
+    "limitPrice": 11000000,
     "slippage": 0
   }
   ```
   
   ```json
   {
-    "margin": 50000.0,
+    "margin": 5000000,
     "asset": "BTC_USDC",
     "side": "sell",
     "leverage": 1,
@@ -37,20 +37,20 @@
   
   ```json
   {
-    "margin": 50000.0,
+    "margin": 5000000,
     "asset": "BTC_USDC",
     "side": "buy",
     "leverage": 1,
     "quantity": 1.0,
     "orderType": "limit",
-    "limitPrice": 109000,
+    "limitPrice": 10900000,
     "slippage": 0
   }
   ```
   
   ```json
   {
-    "margin": 50000.0,
+    "margin": 5000000,
     "asset": "BTC_USDC",
     "side": "sell",
     "leverage": 1,
@@ -61,16 +61,16 @@
   ```
 
   **User assignment:**
-  - 1st payload (buy limit 105000): **User A** (cf9ec1ac-0b66-4aa6-9ad1-1d37607caca6)
+  - 1st payload (buy limit 10500000): **User A** (cf9ec1ac-0b66-4aa6-9ad1-1d37607caca6)
   - 2nd payload (sell market): **User B** (a42d7740-e068-474d-b3a1-e65528f727ad)
-  - 3rd payload (buy limit 104000): **User B** (a42d7740-e068-474d-b3a1-e65528f727ad)
+  - 3rd payload (buy limit 10400000): **User B** (a42d7740-e068-474d-b3a1-e65528f727ad)
   - 4th payload (sell market): **User A** (cf9ec1ac-0b66-4aa6-9ad1-1d37607caca6)
 
   **Result:**
-  - ✅ Order 1 (User A buy limit 105000): Added to order book, status=Open
-  - ✅ Order 2 (User B sell market): Matched at 105000, User B opens SHORT position, PnL=0
-  - ✅ Order 3 (User B buy limit 104000): Added to order book, status=Open (should close SHORT but created new LONG instead)
-  - ✅ Order 4 (User A sell market): Matched at 104000, User A closes LONG position, **PnL=-1000**
+  - ✅ Order 1 (User A buy limit 10500000): Added to order book, status=Open
+  - ✅ Order 2 (User B sell market): Matched at 10500000, User B opens SHORT position, PnL=0
+  - ✅ Order 3 (User B buy limit 10400000): Added to order book, status=Open (should close SHORT but created new LONG instead)
+  - ✅ Order 4 (User A sell market): Matched at 10400000, User A closes LONG position, **PnL=-100000**
   
   **Issues Found:**
   - ❌ User B's buy limit at 104000 did NOT close their SHORT position (entry 105000)
@@ -79,7 +79,7 @@
   
   **Expected Behavior:**
   - When a user with an open SHORT places a BUY order, it should close the SHORT, not open a new LONG
-  - User B should have PnL=+1000 logged when Order 3 executes
+  - User B should have PnL=+100000 logged when Order 3 executes
   
   **To Fix:**
   - Engine needs to check if user has an opposite position before creating a new one
@@ -95,13 +95,13 @@
   
   ```json
   {
-  "margin": 100000.0,
+  "margin": 10000000,
   "asset": "BTC_USDC",
   "side": "sell",
   "leverage": 1,
   "quantity": 1.0,
   "orderType": "limit",
-  "limitPrice": 110000,
+  "limitPrice": 11000000,
   "slippage": 0
   }
 
@@ -109,7 +109,7 @@
   
   ```json
   {
-    "margin": 100000.0,
+    "margin": 10000000,
     "asset": "BTC_USDC",
     "side": "buy",
     "leverage": 1,
@@ -125,7 +125,7 @@
 
   ```json
   {
-    "margin": 50.0,
+    "margin": 5000,
     "asset": "BTC_USDC",
     "side": "buy",
     "leverage": 1,
@@ -137,19 +137,19 @@
 
   ```json
   {
-    "margin": 50.0,
+    "margin": 5000,
     "asset": "BTC_USDC",
     "side": "sell",
     "leverage": 1,
     "quantity": 1.0,
     "orderType": "limit",
-    "limitPrice": 30000,
+    "limitPrice": 3000000,
     "slippage": 0
   }
   ```
 
   **Result:**
-  - When the sell limit order is placed first, and then the buy market order is sent, the engine matches and fills both orders at the limit price (30000).
+  - When the sell limit order is placed first, and then the buy market order is sent, the engine matches and fills both orders at the limit price (3000000).
   - Market order is fully filled, limit order is fully filled.
   - PnL: 0 (no profit/loss at entry, as expected for opening trade).
   - This matches standard exchange behavior.
@@ -164,7 +164,7 @@
 
   ```json
   {
-    "margin": 50.0,
+    "margin": 5000,
     "asset": "BTC_USDC",
     "side": "buy",
     "leverage": 1,
@@ -176,7 +176,7 @@
 
   ```json
   {
-    "margin": 50.0,
+    "margin": 5000,
     "asset": "BTC_USDC",
     "side": "sell",
     "leverage": 1,
@@ -195,32 +195,32 @@
 
   ```json
   {
-    "margin": 50.0,
+    "margin": 5000,
     "asset": "BTC_USDC",
     "side": "buy",
     "leverage": 1,
     "quantity": 1.0,
     "orderType": "limit",
-    "limitPrice": 31000,
+    "limitPrice": 3100000,
     "slippage": 0
   }
   ```
 
   ```json
   {
-    "margin": 50.0,
+    "margin": 5000,
     "asset": "BTC_USDC",
     "side": "sell",
     "leverage": 1,
     "quantity": 1.0,
     "orderType": "limit",
-    "limitPrice": 30000,
+    "limitPrice": 3000000,
     "slippage": 0
   }
   ```
 
   **Result:**
-  - Buy limit order at 31000 and sell limit order at 30000 matched at price 31000.
+  - Buy limit order at 3100000 and sell limit order at 3000000 matched at price 3100000.
   - Both orders were fully filled as expected when prices crossed.
 
 - [x] Buy market order vs. sell limit order (should match and fill)
@@ -228,7 +228,7 @@
 
   ```json
   {
-    "margin": 50.0,
+    "margin": 5000,
     "asset": "BTC_USDC",
     "side": "buy",
     "leverage": 1,
@@ -240,13 +240,13 @@
 
   ```json
   {
-    "margin": 50.0,
+    "margin": 5000,
     "asset": "BTC_USDC",
     "side": "sell",
     "leverage": 1,
     "quantity": 1.0,
     "orderType": "limit",
-    "limitPrice": 30000,
+    "limitPrice": 3000000,
     "slippage": 0
   }
   ```
@@ -254,7 +254,7 @@
   **Result:**
 
 - Scenario tested by sending the sell limit order first, then the buy market order.
-- Orders matched and filled at the limit price (30000) as expected.
+- Orders matched and filled at the limit price (3000000) as expected.
 - Market order fully filled, limit order fully filled.
 - PnL: 0 (no profit/loss at entry).
 - This matches standard exchange behavior.
@@ -265,7 +265,7 @@
 
   ```json
   {
-    "margin": 50.0,
+    "margin": 5000,
     "asset": "BTC_USDC",
     "side": "sell",
     "leverage": 1,
@@ -277,13 +277,13 @@
 
   ```json
   {
-    "margin": 50.0,
+    "margin": 5000,
     "asset": "BTC_USDC",
     "side": "buy",
     "leverage": 1,
     "quantity": 1.0,
     "orderType": "limit",
-    "limitPrice": 30000,
+    "limitPrice": 3000000,
     "slippage": 0
   }
   ```
@@ -300,20 +300,20 @@
 
   ```json
   {
-    "margin": 150.0,
+    "margin": 15000,
     "asset": "BTC_USDC",
     "side": "sell",
     "leverage": 1,
     "quantity": 3.0,
     "orderType": "limit",
-    "limitPrice": 30000,
+    "limitPrice": 3000000,
     "slippage": 0
   }
   ```
 
   ```json
   {
-    "margin": 50.0,
+    "margin": 5000,
     "asset": "BTC_USDC",
     "side": "buy",
     "leverage": 1,
@@ -325,7 +325,7 @@
 
   ```json
   {
-    "margin": 50.0,
+    "margin": 5000,
     "asset": "BTC_USDC",
     "side": "buy",
     "leverage": 1,
@@ -337,7 +337,7 @@
 
   ```json
   {
-    "margin": 50.0,
+    "margin": 5000,
     "asset": "BTC_USDC",
     "side": "buy",
     "leverage": 1,
@@ -350,7 +350,7 @@
   **Result:**
 
 - Scenario tested by placing a large sell limit order (quantity 3), then sending three buy market orders (quantity 1 each).
-- Each market order matched and filled 1 unit at the limit price (30000).
+- Each market order matched and filled 1 unit at the limit price (3000000).
 - The sell limit order was partially filled after each market order, and fully filled after the third.
 - All market orders were fully filled at the limit price.
 - PnL: 0 for each trade (no profit/loss at entry).

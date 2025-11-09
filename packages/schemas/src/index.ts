@@ -42,23 +42,23 @@ export const VerifyOtpSchema = z.object({
 
 export const PriceUpdateSchema = z.object({
   asset: z.string(),
-  price: z.number(),
-  timestamp: z.number(),
+  price: z.number().int(),
+  timestamp: z.number().int(),
 })
 
 export const createOrderSchema = z.object({
   asset: z.string().min(1, "Asset is required"),
   side: z.enum(["buy", "sell"]),
-  margin: z.number().positive("Margin must be a positive number"),
+  margin: z.number().int().positive("Margin must be a positive integer"),
   leverage: z.number().int().positive("Leverage must be a positive integer"),
   slippage: z.number().int().nonnegative("Slippage must be a non-negative integer"),
   orderType: z.optional(z.enum(["market", "limit"])),
   // accept omitted key or explicit null from clients; superRefine enforces presence for limit orders
-  limitPrice: z.number().positive("limitPrice must be a positive number").nullable().optional(),
-  stopLossPercent: z.optional(z.number()),
-  takeProfitPercent: z.optional(z.number()),
+  limitPrice: z.number().int().positive("limitPrice must be a positive integer").nullable().optional(),
+  stopLossPercent: z.optional(z.number().int()),
+  takeProfitPercent: z.optional(z.number().int()),
   tradeTerm: z.optional(z.enum(["INTRAHOUR", "INTRADAY", "WEEK", "MONTH", "YEAR"])),
-  quantity: z.optional(z.number().positive("Quantity must be a positive number")),
+  quantity: z.optional(z.number().int().positive("Quantity must be a positive integer")),
   timeInForce: z.optional(z.enum(["IOC", "FOK", "DAY", "GTC", "EXPIRE_AT"])),
   expiryTimestamp: z.optional(z.number().int().nonnegative("expiryTimestamp must be a non-negative integer")),
 }).superRefine((data, ctx) => {
@@ -73,7 +73,7 @@ export const createOrderSchema = z.object({
 
   // validate percent bounds if provided
   if (data.stopLossPercent != null) {
-    if (typeof data.stopLossPercent !== "number" || data.stopLossPercent <= 0 || data.stopLossPercent >= 100) {
+    if (data.stopLossPercent <= 0 || data.stopLossPercent >= 100) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "stopLossPercent must be > 0 and < 100",
@@ -83,7 +83,7 @@ export const createOrderSchema = z.object({
   }
 
   if (data.takeProfitPercent != null) {
-    if (typeof data.takeProfitPercent !== "number" || data.takeProfitPercent <= 0 || data.takeProfitPercent >= 100) {
+    if (data.takeProfitPercent <= 0 || data.takeProfitPercent >= 100) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "takeProfitPercent must be > 0 and < 100",

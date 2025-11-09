@@ -114,11 +114,15 @@ pub async fn consume_balance_responses(
                 if let Some(Ok(payload)) = message.payload_view::<str>() {
                     // Parse the JSON payload
                     if let Ok(resp) = serde_json::from_str::<serde_json::Value>(payload) {
-                        if let (Some(user_id), Some(balance)) =
+                        if let (Some(user_id), Some(balance_value)) =
                             (resp.get("user_id"), resp.get("balance"))
                         {
                             let user_id = user_id.as_str().unwrap_or_default().to_string();
-                            let balance = balance.as_f64().unwrap_or(0.0);
+                            let balance = match balance_value {
+                                serde_json::Value::Number(num) => num.as_i64().unwrap_or(0),
+                                serde_json::Value::String(s) => s.parse::<i64>().unwrap_or(0),
+                                _ => 0,
+                            };
                             // Update the in-memory balances
                             println!(
                                 "Received balance response for user {}: {}",
@@ -186,14 +190,18 @@ pub async fn consume_holdings_responses(
                 if let Some(Ok(payload)) = message.payload_view::<str>() {
                     // Parse the JSON payload
                     if let Ok(resp) = serde_json::from_str::<serde_json::Value>(payload) {
-                        if let (Some(user_id), Some(asset), Some(held_quantity)) = (
+                        if let (Some(user_id), Some(asset), Some(held_quantity_value)) = (
                             resp.get("userId"),
                             resp.get("asset"),
                             resp.get("heldQuantity"),
                         ) {
                             let user_id = user_id.as_str().unwrap_or_default().to_string();
                             let asset = asset.as_str().unwrap_or_default().to_string();
-                            let held_quantity = held_quantity.as_f64().unwrap_or(0.0);
+                            let held_quantity = match held_quantity_value {
+                                serde_json::Value::Number(num) => num.as_i64().unwrap_or(0),
+                                serde_json::Value::String(s) => s.parse::<i64>().unwrap_or(0),
+                                _ => 0,
+                            };
                             // Update the in-memory holdings
                             println!(
                                 "Received holdings response for user {} asset {}: {}",

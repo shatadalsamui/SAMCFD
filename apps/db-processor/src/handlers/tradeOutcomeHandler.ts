@@ -1,6 +1,5 @@
 import { db as prisma } from "@repo/db";
 import { Prisma, TradeStatus } from "@repo/db/generated/prisma";
-import Decimal from "decimal.js";
 
 export const tradeOutcomeHandler = async (message: any) => {
     try {
@@ -54,28 +53,70 @@ export const tradeOutcomeHandler = async (message: any) => {
             return;
         }
 
-        // Convert numeric fields to correct types
-        const toDecimal = (val: any) => val !== undefined && val !== null ? new Decimal(val).toNumber() : undefined;
-        const toInt = (val: any) => val !== undefined && val !== null ? Number(val) : undefined;
+        const parseBigIntField = (value: unknown, field: string, required = false): bigint | undefined => {
+            if (value === undefined || value === null || value === "") {
+                if (required) {
+                    console.error(`Missing required BigInt field: ${field}`);
+                }
+                return undefined;
+            }
+            try {
+                return BigInt(value as any);
+            } catch (error) {
+                console.error(`Invalid BigInt for ${field}:`, value, error);
+                return undefined;
+            }
+        };
+
+        const parseIntField = (value: unknown): number | undefined => {
+            if (value === undefined || value === null || value === "") {
+                return undefined;
+            }
+            const parsed = Number.parseInt(String(value), 10);
+            return Number.isNaN(parsed) ? undefined : parsed;
+        };
+
+        const parsedQuantity = parseBigIntField(quantity, "quantity", true);
+        const parsedEntryPrice = parseBigIntField(entryPrice, "entryPrice", true);
+        const parsedClosePrice = parseBigIntField(closePrice, "closePrice");
+        const parsedPnl = parseBigIntField(pnl, "pnl");
+        const parsedMargin = parseBigIntField(margin, "margin") ?? 0n;
+        const parsedLimitPrice = parseBigIntField(limitPrice, "limitPrice");
+        const parsedStopLossPercent = parseIntField(message.stopLossPercent ?? message.stop_loss_percent);
+        const parsedTakeProfitPercent = parseIntField(message.takeProfitPercent ?? message.take_profit_percent);
+
+        if (parsedQuantity === undefined || parsedEntryPrice === undefined) {
+            console.error("Unable to process trade outcome due to missing required numeric fields.");
+            return;
+        }
+
+        const parsedLeverage = parseIntField(leverage) ?? 0;
+        const parsedSlippage = parseIntField(slippage) ?? 0;
 
         const updatePayload: any = {
             asset,
             side: prismaSide,
-            quantity: toDecimal(quantity),
-            entryPrice: toDecimal(entryPrice),
-            closePrice: toDecimal(closePrice),
-            pnl: toDecimal(pnl),
+            quantity: parsedQuantity,
+            entryPrice: parsedEntryPrice,
+            closePrice: parsedClosePrice,
+            pnl: parsedPnl,
             status: prismaStatus,
             closedAt: timestamp ? new Date(timestamp) : undefined,
-            margin: toDecimal(margin) ?? 0,
-            leverage: toInt(leverage) ?? 0,
-            slippage: toInt(slippage) ?? 0,
+            margin: parsedMargin,
+            leverage: parsedLeverage,
+            slippage: parsedSlippage,
         };
         if (prismaOrderType) {
             updatePayload.orderType = prismaOrderType;
         }
-        if (limitPrice !== undefined && limitPrice !== null) {
-            updatePayload.limitPrice = toDecimal(limitPrice);
+        if (parsedLimitPrice !== undefined) {
+            updatePayload.limitPrice = parsedLimitPrice;
+        }
+        if (parsedStopLossPercent !== undefined) {
+            updatePayload.stopLossPercent = parsedStopLossPercent;
+        }
+        if (parsedTakeProfitPercent !== undefined) {
+            updatePayload.takeProfitPercent = parsedTakeProfitPercent;
         }
         if (userId) {
             updatePayload.user = { connect: { id: userId } };
@@ -85,22 +126,28 @@ export const tradeOutcomeHandler = async (message: any) => {
             id: tradeId,
             asset,
             side: prismaSide,
-            quantity: toDecimal(quantity),
-            entryPrice: toDecimal(entryPrice),
-            closePrice: toDecimal(closePrice),
-            pnl: toDecimal(pnl),
+            quantity: parsedQuantity,
+            entryPrice: parsedEntryPrice,
+            closePrice: parsedClosePrice,
+            pnl: parsedPnl,
             status: prismaStatus,
             createdAt: timestamp ? new Date(timestamp) : new Date(),
             closedAt: timestamp ? new Date(timestamp) : undefined,
-            margin: toDecimal(margin) ?? 0,
-            leverage: toInt(leverage) ?? 0,
-            slippage: toInt(slippage) ?? 0,
+            margin: parsedMargin,
+            leverage: parsedLeverage,
+            slippage: parsedSlippage,
         };
         if (prismaOrderType) {
             createPayload.orderType = prismaOrderType;
         }
-        if (limitPrice !== undefined && limitPrice !== null) {
-            createPayload.limitPrice = toDecimal(limitPrice);
+        if (parsedLimitPrice !== undefined) {
+            createPayload.limitPrice = parsedLimitPrice;
+        }
+        if (parsedStopLossPercent !== undefined) {
+            createPayload.stopLossPercent = parsedStopLossPercent;
+        }
+        if (parsedTakeProfitPercent !== undefined) {
+            createPayload.takeProfitPercent = parsedTakeProfitPercent;
         }
         if (userId) {
             createPayload.user = { connect: { id: userId } };
@@ -115,13 +162,13 @@ export const tradeOutcomeHandler = async (message: any) => {
         ];
 
         if (userId && message.updatedBalance !== undefined && message.updatedBalance !== null) {
-            const updatedBalance = new Decimal(message.updatedBalance);
-            if (!updatedBalance.isNaN()) {
+            const updatedBalance = parseBigIntField(message.updatedBalance, "updatedBalance");
+            if (updatedBalance !== undefined) {
                 prismaOperations.push(
                     prisma.balance.upsert({
                         where: { userId },
-                        update: { amount: updatedBalance.toNumber() },
-                        create: { userId, amount: updatedBalance.toNumber() },
+                        update: { amount: updatedBalance },
+                        create: { userId, amount: updatedBalance },
                     })
                 );
                 console.log(`Queued balance update for user ${userId}: ${updatedBalance.toString()}`);
@@ -134,16 +181,17 @@ export const tradeOutcomeHandler = async (message: any) => {
             message.updatedHoldings !== undefined &&
             message.updatedHoldings !== null
         ) {
-            const updatedHoldings = new Decimal(message.updatedHoldings);
-            if (!updatedHoldings.isNaN()) {
+            const updatedHoldings = parseBigIntField(message.updatedHoldings, "updatedHoldings");
+            if (updatedHoldings !== undefined) {
+                
                 prismaOperations.push(
                     prisma.holdings.upsert({
                         where: { userId_asset: { userId, asset } },
-                        update: { quantity: updatedHoldings.toNumber() },
+                        update: { quantity: updatedHoldings },
                         create: {
                             userId,
                             asset,
-                            quantity: updatedHoldings.toNumber(),
+                            quantity: updatedHoldings,
                         },
                     })
                 );

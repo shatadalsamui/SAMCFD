@@ -7,7 +7,28 @@ export const balanceRequestHandler = async (parsedMessage: any) => {
         const user_id = parsedMessage.user_id || parsedMessage.userId;
         const balanceRecord = await prisma.balance.findUnique({ where: { userId: user_id } });
         console.log("Balance record from DB for user:", user_id, balanceRecord);
-        const balance = balanceRecord ? Number(balanceRecord.amount) : 0;
+        const toBigIntString = (val: any): string => {
+            if (val === undefined || val === null) {
+                return "0";
+            }
+            if (typeof val === "bigint") {
+                return val.toString();
+            }
+            if (typeof val === "number") {
+                if (!Number.isFinite(val)) {
+                    return "0";
+                }
+                return Math.trunc(val).toString();
+            }
+            try {
+                return BigInt(val).toString();
+            } catch (error) {
+                console.error("Failed to normalize balance value to BigInt string:", val, error);
+                return "0";
+            }
+        };
+
+        const balance = balanceRecord ? toBigIntString(balanceRecord.amount) : "0";
 
         await producer.send({
             topic: "balance-response",

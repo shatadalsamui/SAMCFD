@@ -44,7 +44,8 @@ export const balanceQueryHandler = async (message: any) => {
             return;
         }
 
-        console.log(`Balance fetched for user ${userId}: ${balanceRecord.amount}`);
+        const balance = balanceRecord.amount?.toString() ?? "0";
+        console.log(`Balance fetched for user ${userId}: ${balance}`);
         await producer.send({
             topic: "balance-query-response",
             messages: [
@@ -52,7 +53,7 @@ export const balanceQueryHandler = async (message: any) => {
                     key: correlationId,
                     value: JSON.stringify({
                         success: true,
-                        balance: balanceRecord.amount,
+                        balance,
                         correlationId,
                     }),
                 },

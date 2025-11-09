@@ -9,13 +9,13 @@ pub async fn apply_execution(
     user_id: &str,
     asset: &str,
     side_executed: &Side,
-    quantity: f64,
-    price: f64,
-    leverage: f64,
+    quantity: i64,
+    price: i64,
+    leverage: i64,
     order_id: &str,
     order_type: &OrderType,
-    limit_price: Option<f64>,
-    margin: f64,
+    limit_price: Option<i64>,
+    margin: i64,
     created_at: i64,
     tx: &tokio::sync::mpsc::Sender<String>,
 ) {
@@ -32,7 +32,7 @@ pub async fn apply_execution(
         .map(|(id, t)| {
             (
                 id.clone(),
-                t.entry_price.unwrap_or(0.0),
+                t.entry_price.unwrap_or(0),
                 t.quantity,
                 t.margin,
                 t.side.clone(),
@@ -57,12 +57,11 @@ pub async fn apply_execution(
             Side::Sell => (price - entry_price) * close_qty * existing_leverage, // closing long
         };
 
-        let margin_return_ratio = if existing_qty > 0.0 {
-            close_qty / existing_qty
+        let margin_return = if existing_qty > 0 {
+            existing_margin * close_qty / existing_qty
         } else {
-            0.0
+            0
         };
-        let margin_return = existing_margin * margin_return_ratio;
 
         // Update balance with PnL and return margin for closed portion
         if let Some(balance) = engine_state.balances.get_mut(user_id) {
@@ -93,20 +92,19 @@ pub async fn apply_execution(
         // Update existing trade quantity
         if let Some(trade) = engine_state.open_trades.get_mut(&existing_id) {
             trade.quantity -= close_qty;
-            let remaining_ratio = if existing_qty > 0.0 {
-                (existing_qty - close_qty).max(0.0) / existing_qty
+            if existing_qty > 0 {
+                trade.margin = existing_margin * trade.quantity / existing_qty;
             } else {
-                0.0
-            };
-            trade.margin = existing_margin * remaining_ratio;
-            if trade.quantity <= 0.0 {
+                trade.margin = 0;
+            }
+            if trade.quantity <= 0 {
                 engine_state.open_trades.remove(&existing_id);
             }
         }
 
         let remaining_qty = quantity - close_qty;
-        let remaining_margin = if remaining_qty > 0.0 { margin } else { 0.0 };
-        if remaining_qty > 0.0 {
+        let remaining_margin = if remaining_qty > 0 { margin } else { 0 };
+        if remaining_qty > 0 {
             // Open new opposite position
             let new_trade = crate::modules::types::Trade {
                 id: order_id.to_string(),
@@ -118,7 +116,7 @@ pub async fn apply_execution(
                 quantity: remaining_qty,
                 entry_price: Some(price),
                 close_price: Some(price),
-                pnl: Some(0.0),
+                pnl: Some(0),
                 status: Some("filled".to_string()),
                 created_at: Some(created_at),
                 closed_at: None,
@@ -136,13 +134,13 @@ pub async fn apply_execution(
                     *engine_state
                         .holdings
                         .entry(holdings_key.clone())
-                        .or_insert(0.0) += remaining_qty
+                        .or_insert(0) += remaining_qty
                 }
                 Side::Sell => {
                     *engine_state
                         .holdings
                         .entry(holdings_key.clone())
-                        .or_insert(0.0) -= remaining_qty
+                        .or_insert(0) -= remaining_qty
                 }
             }
 
@@ -155,12 +153,12 @@ pub async fn apply_execution(
                 quantity: remaining_qty,
                 entry_price: Some(price),
                 close_price: Some(price),
-                pnl: Some(0.0),
+                pnl: Some(0),
                 status: Some("filled".to_string()),
                 timestamp: Some(created_at),
                 margin: Some(remaining_margin),
                 leverage: Some(leverage),
-                slippage: Some(0.0),
+                slippage: Some(0),
                 reason: None,
                 success: Some(true),
                 order_type: Some(order_type.clone()),
@@ -194,7 +192,7 @@ pub async fn apply_execution(
             timestamp: Some(created_at),
             margin: Some(margin_return),
             leverage: Some(leverage),
-            slippage: Some(0.0),
+            slippage: Some(0),
             reason: None,
             success: Some(true),
             order_type: Some(order_type.clone()),
@@ -242,7 +240,7 @@ pub async fn apply_execution(
                 *engine_state
                     .holdings
                     .entry(holdings_key.clone())
-                    .or_insert(0.0) += quantity;
+                    .or_insert(0) += quantity;
                 println!(
                     "Order {} filled. Opening new long position at {}. PnL: 0",
                     order_id, price
@@ -252,7 +250,7 @@ pub async fn apply_execution(
                 *engine_state
                     .holdings
                     .entry(holdings_key.clone())
-                    .or_insert(0.0) -= quantity;
+                    .or_insert(0) -= quantity;
                 println!(
                     "Order {} filled. Opening new short position at {}. PnL: 0",
                     order_id, price
@@ -279,12 +277,12 @@ pub async fn apply_execution(
             quantity,
             entry_price: Some(price),
             close_price: Some(price),
-            pnl: Some(0.0),
+            pnl: Some(0),
             status: Some("filled".to_string()),
             timestamp: Some(created_at),
             margin: Some(margin),
             leverage: Some(leverage),
-            slippage: Some(0.0),
+            slippage: Some(0),
             reason: None,
             success: Some(true),
             order_type: Some(order_type.clone()),
@@ -306,9 +304,9 @@ pub async fn apply_execution(
 pub async fn publish_trade_outcome_for_market_order(
     engine_state: &crate::modules::state::EngineState,
     order: &Order,
-    entry_price: Option<f64>,
-    close_price: f64,
-    pnl: f64,
+    entry_price: Option<i64>,
+    close_price: i64,
+    pnl: i64,
     status: &str,
     tx: &tokio::sync::mpsc::Sender<String>,
 ) {
@@ -336,7 +334,7 @@ pub async fn publish_trade_outcome_for_market_order(
         timestamp: Some(order.created_at as i64),
         margin: Some(order.margin),
         leverage: Some(order.leverage),
-        slippage: Some(0.0),
+    slippage: Some(0),
         reason: None,
         success: Some(true),
         order_type: Some(order.order_type.clone()),
