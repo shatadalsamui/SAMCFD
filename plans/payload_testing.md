@@ -88,6 +88,71 @@
 
 # Order Matching Test Plan
 
+## 🔄 Additional Payloads for Open/Close Cycle at 120k/121k
+
+**Payload 1: User A opens a new long at $120,000**
+
+```json
+{
+  "margin": 5000000,
+  "asset": "BTC_USDC",
+  "side": "buy",
+  "leverage": 1,
+  "quantity": 1,
+  "orderType": "limit",
+  "limitPrice": 12000000,
+  "slippage": 0
+}
+```
+
+**Payload 2: User B opens a new short at $120,000 (market sell to match above)**
+
+```json
+{
+  "margin": 5000000,
+  "asset": "BTC_USDC",
+  "side": "sell",
+  "leverage": 1,
+  "quantity": 1,
+  "orderType": "market",
+  "slippage": 0
+}
+```
+
+**Payload 3: User B closes their short (buy limit at $121,000)**
+
+```json
+{
+  "margin": 5000000,
+  "asset": "BTC_USDC",
+  "side": "buy",
+  "leverage": 1,
+  "quantity": 1,
+  "orderType": "limit",
+  "limitPrice": 12100000,
+  "slippage": 0
+}
+```
+
+**Payload 4: User A closes their long (sell market, matches User B’s buy at $121,000)**
+
+```json
+{
+  "margin": 5000000,
+  "asset": "BTC_USDC",
+  "side": "sell",
+  "leverage": 1,
+  "quantity": 1,
+  "orderType": "market",
+  "slippage": 0
+}
+```
+
+**Expected Results:**
+- User A: Realizes $1,000 profit, margin unlocked, holdings decrease by 1.
+- User B: Realizes $1,000 loss, margin unlocked, holdings increase by 1.
+- Trade outcomes show correct PnL, margin unlock, and updated balances/holdings.
+
 ## ✅ To-Do List for Order Matching Engine
 
 - [x] Limit order placed first, then market order (should match and fill)
@@ -371,3 +436,151 @@
 
 **Goal:**  
 Test all combinations of order types and verify that PnL is generated and logged as expected for each successful match.
+
+
+## Comprehensive 8-Payload Test Flow
+
+This section documents a single, continuous test flow using 8 payloads, covering open/close cycles, PnL realization, and order matching. Each payload is listed in order, followed by the final expected outcomes.
+
+### Payloads
+
+**1. User A opens long at 110,000**
+```json
+{
+  "margin": 5000000,
+  "asset": "BTC_USDC",
+  "side": "buy",
+  "leverage": 1,
+  "quantity": 1.0,
+  "orderType": "limit",
+  "limitPrice": 11000000,
+  "slippage": 0
+}
+```
+
+**2. User B opens short at 110,000 (market sell)**
+```json
+{
+  "margin": 5000000,
+  "asset": "BTC_USDC",
+  "side": "sell",
+  "leverage": 1,
+  "quantity": 1.0,
+  "orderType": "market",
+  "slippage": 0
+}
+```
+
+**3. User B opens long at 109,000**
+```json
+{
+  "margin": 5000000,
+  "asset": "BTC_USDC",
+  "side": "buy",
+  "leverage": 1,
+  "quantity": 1.0,
+  "orderType": "limit",
+  "limitPrice": 10900000,
+  "slippage": 0
+}
+```
+
+**4. User A closes long (market sell, matches User B’s buy at 109,000)**
+```json
+{
+  "margin": 5000000,
+  "asset": "BTC_USDC",
+  "side": "sell",
+  "leverage": 1,
+  "quantity": 1.0,
+  "orderType": "market",
+  "slippage": 0
+}
+```
+
+**5. User A opens long at 120,000**
+```json
+{
+  "margin": 5000000,
+  "asset": "BTC_USDC",
+  "side": "buy",
+  "leverage": 1,
+  "quantity": 1.0,
+  "orderType": "limit",
+  "limitPrice": 12000000,
+  "slippage": 0
+}
+```
+
+**6. User B opens short at 120,000 (market sell)**
+```json
+{
+  "margin": 5000000,
+  "asset": "BTC_USDC",
+  "side": "sell",
+  "leverage": 1,
+  "quantity": 1.0,
+  "orderType": "market",
+  "slippage": 0
+}
+```
+
+**7. User B closes short (buy limit at 121,000)**
+```json
+{
+  "margin": 5000000,
+  "asset": "BTC_USDC",
+  "side": "buy",
+  "leverage": 1,
+  "quantity": 1.0,
+  "orderType": "limit",
+  "limitPrice": 12100000,
+  "slippage": 0
+}
+```
+
+**8. User A closes long (market sell, matches User B’s buy at 121,000)**
+```json
+{
+  "margin": 5000000,
+  "asset": "BTC_USDC",
+  "side": "sell",
+  "leverage": 1,
+  "quantity": 1.0,
+  "orderType": "market",
+  "slippage": 0
+}
+```
+
+### Final Expected Outcomes
+
+- **User A:**
+  - Opens and closes two long positions (110k→109k, 120k→121k)
+  - First cycle: Realizes **-100,000** PnL (loss), margin unlocked, holdings decrease by 1
+  - Second cycle: Realizes **+100,000** PnL (profit), margin unlocked, holdings decrease by 1
+  - All margin is unlocked after both closes
+
+- **User B:**
+  - Opens and closes two short positions (110k→109k, 120k→121k)
+  - First cycle: Realizes **+100,000** PnL (profit), margin unlocked, holdings increase by 1
+  - Second cycle: Realizes **-100,000** PnL (loss), margin unlocked, holdings increase by 1
+  - All margin is unlocked after both closes
+
+- **Trade outcomes:**
+  - All trades show correct PnL, margin unlock, and updated balances/holdings
+  - No open positions remain for either user
+  - Locked margin per order is tracked and released correctly
+
+#### Final Balances and Holdings (if both started with 500,000 USD and 10 BTC)
+
+- **User A:**
+  - USD: **450,000 USD**
+  - BTC: 10 (if cash-settled; adjust if physical delivery)
+
+- **User B:**
+  - USD: **460,000 USD**
+  - BTC: 10 (if cash-settled; adjust if physical delivery)
+
+All margin is unlocked, and there are no open positions for either user.
+
+---
