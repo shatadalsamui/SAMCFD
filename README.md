@@ -18,6 +18,19 @@ SAMEX is a production-grade, event-driven trading platform for spot cryptocurren
 
 ---
 
+## Testing & Verification
+
+The engine’s spot margin, PnL, and holdings logic have been fully tested and verified with explicit profit/loss scenarios. All balances and holdings are correct after both round-trip and profit/loss flows. See [`plans/payload_testing.md`](plans/payload_testing.md) for the full set of tested payloads and expected outcomes.
+
+- **Tested Flows:**
+  - Open/close cycles for both users
+  - Explicit profit/loss scenarios (e.g., $1,000 profit for User A, $1,000 loss for User B)
+  - Margin is always unlocked after position close
+  - No open positions remain after test flows
+  - All balances and holdings match expectations
+
+**Note:** Only spot margin is supported and tested. No cross margin, perpetuals, or advanced order types are implemented.
+
 
 ## Architecture Overview
 
@@ -159,8 +172,8 @@ packages/                # Shared libraries
 - **Stateless, Horizontally Scalable Services:**  
   All microservices are stateless and can be scaled independently. Kafka and Redis provide the glue for distributed coordination and caching.
 
-- **Engine PnL & Position Logic:**  
-  The engine now closes opposite positions before opening new ones, ensuring correct realized PnL and preventing users from holding both long and short positions for the same asset. Liquidation logic uses up-to-date prices and only triggers when appropriate.
+- **Engine PnL & Position Logic:**
+  The engine strictly enforces spot margin logic: users cannot hold both long and short for the same asset. Opposite positions are always closed before opening new ones, with correct realized PnL and margin unlocking. All prices and margins are handled in cents (integer accounting) for accuracy and consistency. Liquidation logic uses up-to-date prices and only triggers when appropriate.
 
 - **Deferred Trade Execution:**  
   Trades are only executed after balance and holdings are confirmed, preventing premature liquidation and ensuring correct state.
