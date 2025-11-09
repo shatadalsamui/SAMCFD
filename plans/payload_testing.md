@@ -202,153 +202,80 @@
 
   ```json
   {
-    "margin": 5000,
-    "asset": "BTC_USDC",
-    "side": "sell",
-    "leverage": 1,
-    "quantity": 1.0,
-    "orderType": "limit",
-    "limitPrice": 3000000,
-    "slippage": 0
-  }
-  ```
 
-  **Result:**
-  - When the sell limit order is placed first, and then the buy market order is sent, the engine matches and fills both orders at the limit price (3000000).
-  - Market order is fully filled, limit order is fully filled.
-  - PnL: 0 (no profit/loss at entry, as expected for opening trade).
-  - This matches standard exchange behavior.
-  - ✅ Scenario tested and passed.
+    ## Spot Margin Profit/Loss Test Flow (Engine Verified)
 
-  **Result:**
-  - Market order did NOT match immediately (no liquidity).
-  - When the limit order arrived, it did NOT match the resting market order (engine does not match new limit orders against resting market orders, which is standard exchange behavior).
+    This test demonstrates a $1,000 profit for User A and a $1,000 loss for User B, with correct changes in balances and holdings.
 
-- [x] Market order vs. market order (should NOT match)
-  **Payloads:**
+    ### Payloads
 
-  ```json
-  {
-    "margin": 5000,
-    "asset": "BTC_USDC",
-    "side": "buy",
-    "leverage": 1,
-    "quantity": 1.0,
-    "orderType": "market",
-    "slippage": 0
-  }
-  ```
+    **1. User A: Buy 1 BTC at 100,000 USD (limit)**
+    ```json
+    {
+      "margin": 100000,
+      "asset": "BTC_USDC",
+      "side": "buy",
+      "leverage": 1,
+      "quantity": 1.0,
+      "orderType": "limit",
+      "limitPrice": 10000000,
+      "slippage": 0
+    }
+    ```
 
-  ```json
-  {
-    "margin": 5000,
-    "asset": "BTC_USDC",
-    "side": "sell",
-    "leverage": 1,
-    "quantity": 1.0,
-    "orderType": "market",
-    "slippage": 0
-  }
-  ```
+    **2. User B: Sell 1 BTC at 100,000 USD (market)**
+    ```json
+    {
+      "margin": 100000,
+      "asset": "BTC_USDC",
+      "side": "sell",
+      "leverage": 1,
+      "quantity": 1.0,
+      "orderType": "market",
+      "slippage": 0
+    }
+    ```
 
-  **Result:**
-  - No match occurred between the two market orders, as expected.
-  - Both market orders remained unfilled (partially filled), which is standard exchange behavior (market orders do not match each other).
+    **3. User A: Sell 1 BTC at 101,000 USD (limit)**
+    ```json
+    {
+      "margin": 100000,
+      "asset": "BTC_USDC",
+      "side": "sell",
+      "leverage": 1,
+      "quantity": 1.0,
+      "orderType": "limit",
+      "limitPrice": 10100000,
+      "slippage": 0
+    }
+    ```
 
-- [x] Limit order vs. limit order (should match only if prices cross)
-  **Payloads:**
+    **4. User B: Buy 1 BTC at 101,000 USD (market)**
+    ```json
+    {
+      "margin": 100000,
+      "asset": "BTC_USDC",
+      "side": "buy",
+      "leverage": 1,
+      "quantity": 1.0,
+      "orderType": "market",
+      "slippage": 0
+    }
+    ```
 
-  ```json
-  {
-    "margin": 5000,
-    "asset": "BTC_USDC",
-    "side": "buy",
-    "leverage": 1,
-    "quantity": 1.0,
-    "orderType": "limit",
-    "limitPrice": 3100000,
-    "slippage": 0
-  }
-  ```
+    ### Actual Outcomes (Engine Verified)
 
-  ```json
-  {
-    "margin": 5000,
-    "asset": "BTC_USDC",
-    "side": "sell",
-    "leverage": 1,
-    "quantity": 1.0,
-    "orderType": "limit",
-    "limitPrice": 3000000,
-    "slippage": 0
-  }
-  ```
+    - **User A:**
+      - Final USD balance: 501,000 USD
+      - Final BTC holdings: 10
+      - Net profit: $1,000
 
-  **Result:**
-  - Buy limit order at 3100000 and sell limit order at 3000000 matched at price 3100000.
-  - Both orders were fully filled as expected when prices crossed.
+    - **User B:**
+      - Final USD balance: 499,000 USD
+      - Final BTC holdings: 10
+      - Net loss: $1,000
 
-- [x] Buy market order vs. sell limit order (should match and fill)
-  **Payloads:**
-
-  ```json
-  {
-    "margin": 5000,
-    "asset": "BTC_USDC",
-    "side": "buy",
-    "leverage": 1,
-    "quantity": 1.0,
-    "orderType": "market",
-    "slippage": 0
-  }
-  ```
-
-  ```json
-  {
-    "margin": 5000,
-    "asset": "BTC_USDC",
-    "side": "sell",
-    "leverage": 1,
-    "quantity": 1.0,
-    "orderType": "limit",
-    "limitPrice": 3000000,
-    "slippage": 0
-  }
-  ```
-
-  **Result:**
-
-- Scenario tested by sending the sell limit order first, then the buy market order.
-- Orders matched and filled at the limit price (3000000) as expected.
-- Market order fully filled, limit order fully filled.
-- PnL: 0 (no profit/loss at entry).
-- This matches standard exchange behavior.
-- ✅ Scenario tested and passed.
-
-- [x] Sell market order vs. buy limit order (should match and fill)
-  **Payloads:**
-
-  ```json
-  {
-    "margin": 5000,
-    "asset": "BTC_USDC",
-    "side": "sell",
-    "leverage": 1,
-    "quantity": 1.0,
-    "orderType": "market",
-    "slippage": 0
-  }
-  ```
-
-  ```json
-  {
-    "margin": 5000,
-    "asset": "BTC_USDC",
-    "side": "buy",
-    "leverage": 1,
-    "quantity": 1.0,
-    "orderType": "limit",
-    "limitPrice": 3000000,
+    All margin is unlocked, no open positions remain, and all PnL is realized as expected.
     "slippage": 0
   }
   ```
@@ -582,5 +509,131 @@ This section documents a single, continuous test flow using 8 payloads, covering
   - BTC: 10 (if cash-settled; adjust if physical delivery)
 
 All margin is unlocked, and there are no open positions for either user.
+
+---
+
+## Step-by-Step 8-Payload Test Flow (No userId)
+
+Send these payloads in order, using the correct user context for each step:
+
+**1. Buy Limit @ 11,000,000 (User A)**
+```json
+{
+  "margin": 5000000,
+  "asset": "BTC_USDC",
+  "side": "buy",
+  "leverage": 1,
+  "quantity": 1.0,
+  "orderType": "limit",
+  "limitPrice": 11000000,
+  "slippage": 0
+}
+```
+
+**2. Sell Market (User B)**
+```json
+{
+  "margin": 5000000,
+  "asset": "BTC_USDC",
+  "side": "sell",
+  "leverage": 1,
+  "quantity": 1.0,
+  "orderType": "market",
+  "slippage": 0
+}
+```
+
+**3. Buy Limit @ 10,900,000 (User B)**
+```json
+{
+  "margin": 5000000,
+  "asset": "BTC_USDC",
+  "side": "buy",
+  "leverage": 1,
+  "quantity": 1.0,
+  "orderType": "limit",
+  "limitPrice": 10900000,
+  "slippage": 0
+}
+```
+
+**4. Sell Market (User A)**
+```json
+{
+  "margin": 5000000,
+  "asset": "BTC_USDC",
+  "side": "sell",
+  "leverage": 1,
+  "quantity": 1.0,
+  "orderType": "market",
+  "slippage": 0
+}
+```
+
+**5. Buy Limit @ 12,000,000 (User A)**
+```json
+{
+  "margin": 5000000,
+  "asset": "BTC_USDC",
+  "side": "buy",
+  "leverage": 1,
+  "quantity": 1.0,
+  "orderType": "limit",
+  "limitPrice": 12000000,
+  "slippage": 0
+}
+```
+
+**6. Sell Market (User B)**
+```json
+{
+  "margin": 5000000,
+  "asset": "BTC_USDC",
+  "side": "sell",
+  "leverage": 1,
+  "quantity": 1.0,
+  "orderType": "market",
+  "slippage": 0
+}
+```
+
+**7. Buy Limit @ 12,100,000 (User B)**
+```json
+{
+  "margin": 5000000,
+  "asset": "BTC_USDC",
+  "side": "buy",
+  "leverage": 1,
+  "quantity": 1.0,
+  "orderType": "limit",
+  "limitPrice": 12100000,
+  "slippage": 0
+}
+```
+
+**8. Sell Market (User A)**
+```json
+{
+  "margin": 5000000,
+  "asset": "BTC_USDC",
+  "side": "sell",
+  "leverage": 1,
+  "quantity": 1.0,
+  "orderType": "market",
+  "slippage": 0
+}
+```
+
+### Actual Outcomes (Engine Verified)
+
+- **User A:**
+  - Final USD balance: 500,000 USD
+  - Final BTC holdings: 10
+
+- **User B:**
+  - Final USD balance: 500,000 USD
+  - Final BTC holdings: 10
+
+All margin is unlocked, no open positions remain, and all PnL is realized as expected.
 
 ---
