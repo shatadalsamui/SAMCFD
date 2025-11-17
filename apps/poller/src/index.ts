@@ -27,7 +27,7 @@ const connect = () => {
 
     // 1. Handle the 'open' event: This runs when the connection is successful
     ws.on('open', () => {
-        console.log('✅ Connected to Backpack WebSocket.');
+        console.log(' Connected to Backpack WebSocket.');
         reconnectDelay = 1000;
 
         // Define the subscription message for our assets
@@ -77,7 +77,7 @@ const connect = () => {
 
     // 3. Handle the 'close' event: This runs if the connection is lost
     ws.on('close', () => {
-        console.error(`❌ Disconnected from Backpack. Reconnecting in ${reconnectDelay / 1000} seconds...`);
+        console.error(` Disconnected from Backpack. Reconnecting in ${reconnectDelay / 1000} seconds...`);
         setTimeout(connect, reconnectDelay);
         reconnectDelay = Math.min(reconnectDelay * 2, 60000); // Double delay, max 1 minute
     });
